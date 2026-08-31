@@ -1,0 +1,592 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: CloudNest unified cloud storage API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+  - name: dashboard
+  - name: files
+  - name: providers
+  - name: shares
+  - name: analytics
+  - name: activity
+  - name: duplicates
+  - name: allocation
+paths:
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get the current authenticated user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfile" }
+        "401": { description: Not authenticated }
+    patch:
+      operationId: updateMe
+      tags: [auth]
+      summary: Update the current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileInput" }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UserProfile" }
+  /auth/change-password:
+    post:
+      operationId: changePassword
+      tags: [auth]
+      summary: Change the current user's password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChangePasswordInput" }
+      responses:
+        "204": { description: Password changed }
+        "400": { description: Current password incorrect or new password too short }
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Sign out the current user
+      responses:
+        "204": { description: Signed out }
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get dashboard overview
+      responses:
+        "200":
+          description: Dashboard overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /files:
+    get:
+      operationId: listFiles
+      tags: [files]
+      summary: List unified file metadata
+      parameters:
+        - { name: provider, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: search, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: Files
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/File" }
+  /files/{id}:
+    get:
+      operationId: getFile
+      tags: [files]
+      summary: Get file details
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: File
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+        "404": { description: File not found }
+    delete:
+      operationId: deleteFile
+      tags: [files]
+      summary: Delete file metadata
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Deleted }
+  /files/upload:
+    post:
+      operationId: uploadFile
+      tags: [files]
+      summary: Upload a real file - stored on the chosen (or auto-selected) cloud provider
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: "#/components/schemas/UploadFileBody" }
+      responses:
+        "201":
+          description: Uploaded file metadata
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+  /files/{id}/download:
+    get:
+      operationId: downloadFile
+      tags: [files]
+      summary: Download the actual file bytes from the source provider
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: File bytes
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+  /files/{id}/rename:
+    patch:
+      operationId: renameFile
+      tags: [files]
+      summary: Rename the actual file on its cloud provider
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RenameFileInput" }
+      responses:
+        "200":
+          description: Renamed file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+  /files/{id}/move:
+    post:
+      operationId: moveFile
+      tags: [files]
+      summary: Move the file into a different category folder on the same provider
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MoveFileInput" }
+      responses:
+        "200":
+          description: Moved file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+  /files/{id}/migrate:
+    post:
+      operationId: migrateFile
+      tags: [files]
+      summary: Copy the file to a different cloud provider, preserving the original
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MigrateFileInput" }
+      responses:
+        "201":
+          description: New file created on the destination provider
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+  /files/{id}/copy:
+    post:
+      operationId: copyFile
+      tags: [files]
+      summary: Copy the file within its current provider, preserving the original
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CopyFileInput" }
+      responses:
+        "201":
+          description: New copy of the file
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/File" }
+  /folders:
+    post:
+      operationId: createFolder
+      tags: [files]
+      summary: Create a real folder on a connected provider
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateFolderInput" }
+      responses:
+        "201":
+          description: Created folder
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FolderResult" }
+  /providers:
+    get:
+      operationId: listProviders
+      tags: [providers]
+      summary: List supported providers and connection status
+      responses:
+        "200":
+          description: Providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Provider" }
+  /providers/{provider}/connect:
+    post:
+      operationId: connectProvider
+      tags: [providers]
+      summary: Connect a provider or return configuration status
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Provider status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+  /providers/{provider}/disconnect:
+    delete:
+      operationId: disconnectProvider
+      tags: [providers]
+      summary: Disconnect a provider
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Disconnected }
+  /providers/{provider}/sync:
+    post:
+      operationId: syncProvider
+      tags: [providers]
+      summary: Import/index existing cloud files and folders into the CloudNest file index (not just quota)
+      parameters:
+        - { name: provider, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Sync summary
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SyncSummary" }
+  /analytics:
+    get:
+      operationId: getAnalytics
+      tags: [analytics]
+      summary: Get storage analytics
+      responses:
+        "200":
+          description: Analytics
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Analytics" }
+  /activity:
+    get:
+      operationId: listActivity
+      tags: [activity]
+      summary: List recent activity
+      responses:
+        "200":
+          description: Activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Activity" }
+  /duplicates:
+    get:
+      operationId: listDuplicates
+      tags: [duplicates]
+      summary: List duplicate file groups
+      responses:
+        "200":
+          description: Duplicates
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/DuplicateGroup" }
+  /shares:
+    get:
+      operationId: listShares
+      tags: [shares]
+      summary: List share links
+      responses:
+        "200":
+          description: Shares
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Share" }
+    post:
+      operationId: createShare
+      tags: [shares]
+      summary: Create a share link
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ShareInput" }
+      responses:
+        "201":
+          description: Share link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Share" }
+  /shares/{id}:
+    delete:
+      operationId: revokeShare
+      tags: [shares]
+      summary: Revoke a share link
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "204": { description: Revoked }
+  /allocation/recommend/{id}:
+    get:
+      operationId: getAllocationRecommendation
+      tags: [allocation]
+      summary: Recommend the best provider for an existing file, based on real quota data. Never moves the file automatically.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Recommendation
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AllocationRecommendation" }
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    File:
+      type: object
+      required: [id, name, provider, mimeType, size, category, modifiedAt, isDuplicate]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        provider: { type: string }
+        mimeType: { type: string }
+        size: { type: number }
+        category: { type: string }
+        modifiedAt: { type: string }
+        isDuplicate: { type: boolean }
+        hash: { type: ["string", "null"] }
+        path: { type: ["string", "null"] }
+        categoryConfidence: { type: ["number", "null"] }
+        categoryReason: { type: ["string", "null"] }
+    FileInput:
+      type: object
+      required: [name, provider, mimeType, size, category]
+      properties:
+        name: { type: string, minLength: 1 }
+        provider: { type: string }
+        mimeType: { type: string }
+        size: { type: number, minimum: 0 }
+        category: { type: string }
+    UploadFileBody:
+      type: object
+      required: [file]
+      properties:
+        file: { type: string, format: binary }
+        provider:
+          type: string
+          description: Provider id to upload to. Omit to let the server pick the best-fit connected provider.
+        category:
+          type: string
+          description: Category to file under. Omit to let the AI service classify it.
+    Provider:
+      type: object
+      required: [id, name, connected, configured, usedBytes, totalBytes]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        connected: { type: boolean }
+        configured: { type: boolean }
+        statusMessage: { type: string }
+        usedBytes: { type: number }
+        totalBytes: { type: number }
+    Dashboard:
+      type: object
+      required: [totalFiles, totalStorage, connectedProviders, duplicateCount, recentFiles, providerStorage, typeDistribution, recentActivity]
+      properties:
+        totalFiles: { type: number }
+        totalStorage: { type: number }
+        connectedProviders: { type: number }
+        duplicateCount: { type: number }
+        recentFiles:
+          type: array
+          items: { $ref: "#/components/schemas/File" }
+        providerStorage:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }
+        typeDistribution:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }
+        recentActivity:
+          type: array
+          items: { $ref: "#/components/schemas/Activity" }
+    Metric:
+      type: object
+      required: [label, value]
+      properties:
+        label: { type: string }
+        value: { type: number }
+    Activity:
+      type: object
+      required: [id, action, description, createdAt]
+      properties:
+        id: { type: string }
+        action: { type: string }
+        description: { type: string }
+        provider: { type: ["string", "null"] }
+        createdAt: { type: string }
+    Analytics:
+      type: object
+      required: [totalStorage, duplicateCount, providerStorage, fileTypes, categories, largestFiles]
+      properties:
+        totalStorage: { type: number }
+        duplicateCount: { type: number }
+        providerStorage:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }
+        fileTypes:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }
+        categories:
+          type: array
+          items: { $ref: "#/components/schemas/Metric" }
+        largestFiles:
+          type: array
+          items: { $ref: "#/components/schemas/File" }
+    DuplicateGroup:
+      type: object
+      required: [hash, files, totalSize]
+      properties:
+        hash: { type: string }
+        totalSize: { type: number }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/File" }
+    Share:
+      type: object
+      required: [id, fileId, fileName, permission, expiresAt, token, accessCount, createdAt]
+      properties:
+        id: { type: string }
+        fileId: { type: string }
+        fileName: { type: string }
+        permission: { type: string }
+        expiresAt: { type: string }
+        token: { type: string }
+        accessCount: { type: number }
+        createdAt: { type: string }
+    ShareInput:
+      type: object
+      required: [fileId, permission, expiresAt]
+      properties:
+        fileId: { type: string }
+        permission: { type: string, enum: [READ, WRITE] }
+        expiresAt: { type: string }
+    UserProfile:
+      type: object
+      required: [id, name, email]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string }
+        createdAt: { type: ["string", "null"] }
+    UpdateProfileInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1 }
+        email: { type: string, minLength: 3 }
+    ChangePasswordInput:
+      type: object
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string }
+        newPassword: { type: string, minLength: 8 }
+    RenameFileInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1 }
+    MoveFileInput:
+      type: object
+      required: [category]
+      properties:
+        category: { type: string, description: "Destination category folder on the same provider" }
+    MigrateFileInput:
+      type: object
+      required: [toProvider]
+      properties:
+        toProvider: { type: string, description: "Destination provider id. The original file is never deleted." }
+    CopyFileInput:
+      type: object
+      properties:
+        name: { type: string, description: "Optional name for the copy. Defaults to '<original> copy.<ext>'." }
+    SyncSummary:
+      type: object
+      required: [provider, totalRemote, imported, updated, unchanged, hashed]
+      properties:
+        provider: { type: string }
+        totalRemote: { type: number }
+        imported: { type: number }
+        updated: { type: number }
+        unchanged: { type: number }
+        hashed: { type: number }
+    CreateFolderInput:
+      type: object
+      required: [provider, name]
+      properties:
+        provider: { type: string }
+        name: { type: string, minLength: 1 }
+    FolderResult:
+      type: object
+      required: [id, name, provider]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        provider: { type: string }
+    AllocationRecommendation:
+      type: object
+      required: [currentProvider, recommendedProvider, reason, shouldMigrate]
+      properties:
+        currentProvider: { type: string }
+        recommendedProvider: { type: string }
+        reason: { type: string }
+        shouldMigrate: { type: boolean }
+        estimatedFreeAfter: { type: ["number", "null"] }
+

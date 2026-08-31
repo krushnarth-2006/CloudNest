@@ -1,0 +1,25 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: artifacts/cloudnest/Dockerfile
+    ports: ["5173:5173"]
+    environment:
+      PORT: 5173
+      BASE_PATH: /
+  backend:
+    build:
+      context: .
+      dockerfile: artifacts/api-server/Dockerfile
+    ports: ["5000:5000"]
+    env_file: .env
+    environment:
+      PORT: 5000
+      REDIS_URL: redis://redis:6379
+  ai-service:
+    build: ./ai-service
+    ports: ["8000:8000"]
+    env_file: .env
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]

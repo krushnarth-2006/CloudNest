@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CloudNest"
+description = "An AI-powered multi-cloud storage workspace that unifies files, provider connections, sharing, duplicates, analytics, and activity into one calm control center."
+version = "1.0.0"
+id = "artifacts/cloudnest"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19004
+
+[services.development]
+run = "pnpm --filter @workspace/cloudnest run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cloudnest", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cloudnest/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19004"
+BASE_PATH = "/"
