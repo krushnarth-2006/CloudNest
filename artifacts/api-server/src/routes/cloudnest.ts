@@ -37,19 +37,71 @@ const PROVIDER_DISPLAY: Record<string, { name: string; envKey: string }> = {
 // -----------------------------------------------------------------------
 router.get("/dashboard", ...secure, async (req: AuthRequest, res) => {
   const userId = req.userId!;
-const userFiles = await FileModel.find({ userId }).sort({ modifiedAt: -1 }).lean();
-  const logs = await ActivityLog.find({ userId }).sort({ createdAt: -1 }).limit(5).lean();
-  const byProvider = new Map<string, number>(); const byType = new Map<string, number>();
-  for (const file of userFiles) { byProvider.set(file.provider, (byProvider.get(file.provider) ?? 0) + file.size); byType.set(file.mimeType ?? "Other", (byType.get(file.mimeType ?? "Other") ?? 0) + 1); }
+
+  // File metadata is used for file count, recent files, duplicates, etc.
+  const userFiles = await FileModel.find({ userId })
+    .sort({ modifiedAt: -1 })
+    .lean();
+
+  const logs = await ActivityLog.find({ userId })
+    .sort({ createdAt: -1 })
+    .limit(5)
+    .lean();
+
+  // IMPORTANT:
+  // Storage must come from the actual connected cloud accounts,
+  // NOT from the sum of MongoDB file metadata sizes.
+  const connectedAccounts = await ConnectedAccount.find({
+    userId,
+    connected: true,
+  }).lean();
+
+  const totalStorage = connectedAccounts.reduce(
+    (sum, account) => sum + (account.usedBytes ?? 0),
+    0
+  );
+
+  const providerStorage = connectedAccounts.map((account) => ({
+    label: account.provider,
+    value: account.usedBytes ?? 0,
+  }));
+
+  const byType = new Map<string, number>();
+
+  for (const file of userFiles) {
+    byType.set(
+      file.mimeType ?? "Other",
+      (byType.get(file.mimeType ?? "Other") ?? 0) + 1
+    );
+  }
+
   return res.json({
-    totalFiles: userFiles.length, totalStorage: userFiles.reduce((sum, file) => sum + file.size, 0),
-    connectedProviders: await ConnectedAccount.countDocuments({ userId, connected: true }), duplicateCount: userFiles.filter((file) => file.isDuplicate).length,
-    recentFiles: userFiles.slice(0, 5), providerStorage: [...byProvider].map(([label, value]) => ({ label, value })),
-    typeDistribution: [...byType].map(([label, value]) => ({ label, value })),
-    recentActivity: logs.map((log) => ({ id: String(log._id), action: log.action, description: log.description, provider: log.provider ?? null, createdAt: String(log.createdAt) })),
+    totalFiles: userFiles.length,
+    totalStorage,
+
+    connectedProviders: connectedAccounts.length,
+
+    duplicateCount: userFiles.filter((file) => file.isDuplicate).length,
+
+    recentFiles: userFiles.slice(0, 5),
+
+    // Real storage usage from connected cloud accounts
+    providerStorage,
+
+    typeDistribution: [...byType].map(([label, value]) => ({
+      label,
+      value,
+    })),
+
+    recentActivity: logs.map((log) => ({
+      id: String(log._id),
+      action: log.action,
+      description: log.description,
+      provider: log.provider ?? null,
+      createdAt: String(log.createdAt),
+    })),
   });
 });
-
 // -----------------------------------------------------------------------
 // Files
 // -----------------------------------------------------------------------
@@ -412,19 +464,58 @@ router.get("/providers/:provider/callback", async (req, res) => {
     return res.status(502).send("OAuth token exchange failed");
   }
 
-  const { encryptSecret } = await import("../lib/crypto");
-  const account = await ConnectedAccount.findOneAndUpdate(
-    { userId, provider: String(req.params.provider) },
-    {
-      userId, provider: String(req.params.provider), connected: true,
-      providerAccountId: tokens.providerAccountId,
-      accessTokenEnc: encryptSecret(tokens.accessToken),
-      refreshTokenEnc: encryptSecret(tokens.refreshToken),
-      scopes: tokens.scope?.split(" ") ?? [],
-      tokenExpiresAt: tokens.expiresAt,
-    },
-    { upsert: true, new: true },
-  );
+const providerId = String(req.params.provider);
+
+const existingAccount = await ConnectedAccount.findOne({
+  userId,
+  provider: providerId,
+});
+
+const accountChanged =
+  !!existingAccount?.providerAccountId &&
+  !!tokens.providerAccountId &&
+  existingAccount.providerAccountId !== tokens.providerAccountId;
+
+if (accountChanged) {
+  // A different account was connected for this provider.
+  // Remove the old account's locally indexed files and folders.
+  await FileModel.deleteMany({
+    userId,
+    provider: providerId,
+  });
+
+  await Folder.deleteMany({
+    userId,
+    provider: providerId,
+  });
+}
+
+const { encryptSecret } = await import("../lib/crypto");
+
+const account = await ConnectedAccount.findOneAndUpdate(
+  {
+    userId,
+    provider: providerId,
+  },
+  {
+    userId,
+    provider: providerId,
+    connected: true,
+    providerAccountId: tokens.providerAccountId,
+    accessTokenEnc: encryptSecret(tokens.accessToken),
+    refreshTokenEnc: tokens.refreshToken
+      ? encryptSecret(tokens.refreshToken)
+      : undefined,
+    scopes: tokens.scope?.split(" ") ?? [],
+    tokenExpiresAt: tokens.expiresAt,
+    usedBytes: 0,
+    totalBytes: 0,
+  },
+  {
+    upsert: true,
+    new: true,
+  },
+);
 
   // Pull real quota immediately so the Providers page shows accurate numbers right away.
   try {
@@ -438,10 +529,55 @@ router.get("/providers/:provider/callback", async (req, res) => {
 });
 
 router.delete("/providers/:provider/disconnect", ...secure, async (req: AuthRequest, res) => {
-  const authorized = await getAuthorizedProvider(req.userId!, String(req.params.provider));
-  if (authorized) { try { await authorized.provider.disconnect(authorized.creds); } catch { /* best effort */ } }
-  await ConnectedAccount.deleteOne({ userId: req.userId, provider: String(req.params.provider) });
-  await activity(req.userId!, "Provider disconnected", `${String(req.params.provider)} disconnected`, String(req.params.provider));
+  const provider = String(req.params.provider);
+  const userId = req.userId!;
+
+  const authorized = await getAuthorizedProvider(userId, provider);
+
+  if (authorized) {
+    try {
+      await authorized.provider.disconnect(authorized.creds);
+    } catch {
+      // best effort
+    }
+  }
+
+  // Remove the connected account
+  await ConnectedAccount.deleteOne({
+    userId,
+    provider,
+  });
+
+  // IMPORTANT:
+  // Remove locally indexed files belonging to this provider.
+  // This prevents storage/files from an old Google/OneDrive/Dropbox
+  // account from appearing after a different account is connected.
+  await FileModel.deleteMany({
+    userId,
+    provider,
+  });
+
+// Remove locally indexed file metadata for this provider as well.
+// This does NOT delete the actual files from Google Drive,
+// OneDrive, or Dropbox.
+await FileModel.deleteMany({
+  userId,
+  provider,
+});
+
+// Remove locally stored folders for this provider as well.
+await Folder.deleteMany({
+  userId,
+  provider,
+});
+
+  await activity(
+    userId,
+    "Provider disconnected",
+    `${provider} disconnected`,
+    provider
+  );
+
   return res.status(204).send();
 });
 

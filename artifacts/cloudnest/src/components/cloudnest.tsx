@@ -7,7 +7,7 @@ import {
   CircleHelp, Cloud, Copy, FileArchive, FileImage, FilePlus2, FileSpreadsheet,
   FileText, Folder, FolderPlus, HardDrive, LayoutDashboard, LayoutGrid, Link2, List, ListFilter, LockKeyhole,
   LogOut, Menu, MoreHorizontal, Network, PanelLeftClose, Pencil, Plus, RefreshCw,
-  Search, Settings, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Trash2,
+  Search, Settings, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Keyboard, Trash2,
   UploadCloud, UserRound, X, Zap
 } from "lucide-react";
 import {
@@ -55,10 +55,58 @@ const timeAgo = (date?: string) => {
 const titleCase = (value = "") => value.toLowerCase().replace(/(^|\s)\S/g, (l) => l.toUpperCase());
 const providerColor = (name = "") => ({ "Google Drive": "#2ea6b1", OneDrive: "#5576c5", Dropbox: "#e59b2f" }[name] || "#7a8da4");
 const fileIcon = (mime = "") => mime.includes("image") ? FileImage : mime.includes("spreadsheet") || mime.includes("excel") ? FileSpreadsheet : mime.includes("pdf") || mime.includes("text") ? FileText : mime.includes("zip") || mime.includes("archive") ? FileArchive : FileText;
+const SETTINGS_KEYS = {
+  compact: "cloudnest-compact-file-rows",
+  notifications: "cloudnest-activity-notifications",
+  notificationHistory: "cloudnest-notification-history",
 
+};
+
+function useCloudNestSetting(key: string, defaultValue: boolean) {
+  const [value, setValue] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved === null ? defaultValue : saved === "true";
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    const handleChange = () => {
+      try {
+        const saved = localStorage.getItem(key);
+        setValue(saved === null ? defaultValue : saved === "true");
+      } catch {
+        setValue(defaultValue);
+      }
+    };
+
+    window.addEventListener("cloudnest-settings-change", handleChange);
+    window.addEventListener("storage", handleChange);
+
+    return () => {
+      window.removeEventListener("cloudnest-settings-change", handleChange);
+      window.removeEventListener("storage", handleChange);
+    };
+  }, [key, defaultValue]);
+
+  const update = (nextValue: boolean) => {
+    setValue(nextValue);
+
+    try {
+      localStorage.setItem(key, String(nextValue));
+      window.dispatchEvent(new Event("cloudnest-settings-change"));
+    } catch {
+      // Ignore localStorage errors.
+    }
+  };
+
+  return [value, update] as const;
+}
 function Logo({ light = false }: { light?: boolean }) {
-  return <Link href="/" className="flex items-center gap-2.5" data-testid="link-logo">
-    <span className={`grid size-8 place-items-center rounded-[10px] ${light ? "bg-[hsl(var(--sidebar-primary))] text-[hsl(var(--sidebar)] )" : "bg-[hsl(var(--primary))] text-white"}`}>
+return <Link href="/home" className="flex items-center gap-2.5" data-testid="link-logo">
+      <span className={`grid size-8 place-items-center rounded-[10px] ${light ? "bg-[hsl(var(--sidebar-primary))] text-[hsl(var(--sidebar)] )" : "bg-[hsl(var(--primary))] text-white"}`}>
       <Cloud className="size-[17px]" strokeWidth={2.5} />
     </span>
     <span className={`font-semibold tracking-[-.04em] text-[17px] ${light ? "text-white" : "text-[hsl(var(--foreground))]"}`}>cloudnest</span>
@@ -82,6 +130,85 @@ function getInitials(name: string) {
 function Shell({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const logout = useLogout();
+  const [signOutConfirm, setSignOutConfirm] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  const [notificationsEnabled] = useCloudNestSetting(
+    SETTINGS_KEYS.notifications,
+    true
+  );
+
+  type CloudNestNotification = {
+  id: string;
+  message: string;
+  type: "success" | "error" | "info" | "warning";
+  createdAt: number;
+};
+
+const [notifications, setNotifications] = useState<
+  CloudNestNotification[]
+>(() => {
+  try {
+    const saved = localStorage.getItem(
+      SETTINGS_KEYS.notificationHistory
+    );
+
+    if (!saved) return [];
+
+    return JSON.parse(saved) as CloudNestNotification[];
+  } catch {
+    return [];
+  }
+});
+
+const [notificationsOpen, setNotificationsOpen] = useState(false);
+useEffect(() => {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEYS.notificationHistory,
+      JSON.stringify(notifications)
+    );
+  } catch {
+    // Ignore localStorage errors.
+  }
+}, [notifications]);
+
+useEffect(() => {
+  const handleCloudNestNotification = (event: Event) => {
+    if (!notificationsEnabled) return;
+
+    const customEvent =
+      event as CustomEvent<{
+        message: string;
+        type?: "success" | "error" | "info" | "warning";
+      }>;
+
+    const newNotification: CloudNestNotification = {
+      id: `${Date.now()}-${Math.random()}`,
+      message: customEvent.detail.message,
+      type: customEvent.detail.type ?? "info",
+      createdAt: Date.now(),
+    };
+
+    setNotifications((previous) => [
+      newNotification,
+      ...previous,
+    ].slice(0, 20));
+  };
+
+  window.addEventListener(
+    "cloudnest-notification",
+    handleCloudNestNotification
+  );
+
+  return () => {
+    window.removeEventListener(
+      "cloudnest-notification",
+      handleCloudNestNotification
+    );
+  };
+}, [notificationsEnabled]);
   const duplicatesQ = useListDuplicates({
   query: { queryKey: getListDuplicatesQueryKey() },
 });
@@ -115,33 +242,607 @@ useEffect(() => {
     cancelled = true;
   };
 }, []);
+ 
+
   const current = nav.find((item) => location === item.href || (item.href !== "/dashboard" && location.startsWith(item.href)));
   const extraLabels: Record<string, string> = { "/settings": "Settings", "/profile": "Profile" };
   const crumbLabel = current?.label ?? extraLabels[location] ?? "Home";
   return <div className="cn-app cn-noise flex min-h-[100dvh]">
-    <aside className={`cn-sidebar fixed inset-y-0 left-0 z-30 flex w-[244px] flex-col border-r border-[hsl(var(--sidebar-border))] px-3 py-5 transition-transform duration-300 md:static md:translate-x-0 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
-      <div className="mb-9 px-3"><Logo light /></div>
-      <div className="mb-3 px-3 text-[10px] font-medium uppercase tracking-[.16em] text-[hsl(var(--sidebar-foreground)/.38)]">Workspace</div>
-      <nav className="space-y-1">
-        {nav.slice(0, 5).map(({ label, href, icon: Icon }) => <Link key={href} href={href} onClick={() => setMobileOpen(false)} className={`cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium ${current?.href === href ? "active" : ""}`} data-testid={`link-nav-${label.toLowerCase().replace(" ", "-")}`}><Icon className="size-[17px]" strokeWidth={1.8} /><span>{label}</span>{label === "Search" && <span className="ml-auto cn-mono text-[9px] opacity-40">⌘K</span>}</Link>)}
-      </nav>
-      <div className="mb-3 mt-8 px-3 text-[10px] font-medium uppercase tracking-[.16em] text-[hsl(var(--sidebar-foreground)/.38)]">Manage</div>
-      <nav className="space-y-1">
-{nav.slice(5).map(({ label, href, icon: Icon }) => <Link key={href} href={href} onClick={() => setMobileOpen(false)} className={`cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium ${current?.href === href ? "active" : ""}`} data-testid={`link-nav-${label.toLowerCase().replace(" ", "-")}`}><Icon className="size-[17px]" strokeWidth={1.8} /><span>{label}</span>{label === "Duplicates" && <span className="ml-auto rounded-md bg-[hsl(var(--accent)/.18)] px-1.5 py-0.5 cn-mono text-[10px] text-[hsl(var(--accent))]">{duplicateCount}</span>}</Link>)}      </nav>
-      <div className="mt-auto space-y-1">
-        <Link href="/settings" className="cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium" data-testid="link-nav-settings"><Settings className="size-[17px]" strokeWidth={1.8} />Settings</Link>
-        <Link href="/profile" className="cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium" data-testid="link-nav-profile"><UserRound className="size-[17px]" strokeWidth={1.8} />Profile</Link>
-        <div className="mt-4 border-t border-[hsl(var(--sidebar-border))] px-3 pb-1 pt-4">
-          <div className="flex items-center gap-2.5"><span className="grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold text-[hsl(var(--accent-foreground))]">{getInitials(currentUser?.name ?? "")}</span><div className="min-w-0"><div className="truncate text-xs font-medium text-white">{currentUser?.name ?? "User"}</div><div className="truncate text-[10px] text-[hsl(var(--sidebar-foreground)/.48)]">Personal workspace</div></div><button className="ml-auto text-[hsl(var(--sidebar-foreground)/.48)]" data-testid="button-account-menu"><MoreHorizontal className="size-4" /></button></div>
+<aside className="cn-sidebar fixed inset-y-0 left-0 z-30 flex h-screen w-[244px] flex-col overflow-hidden border-r border-[hsl(var(--sidebar-border))]">
+
+  <div className="shrink-0 px-3 pb-5">
+    <Logo light />
+  </div>
+
+  <div className="flex-1 min-h-0 overflow-y-auto px-3">
+
+    <div className="mb-3 px-3 text-[10px] font-medium uppercase tracking-[.16em] text-[hsl(var(--sidebar-foreground)/.38)]">
+      Workspace
+    </div>
+
+    <nav className="space-y-1">
+      {nav.slice(0, 5).map(({ label, href, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          onClick={() => setMobileOpen(false)}
+          className={`cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium ${
+            current?.href === href ? "active" : ""
+          }`}
+          data-testid={`link-nav-${label.toLowerCase().replace(" ", "-")}`}
+        >
+          <Icon className="size-[17px]" strokeWidth={1.8} />
+          <span>{label}</span>
+
+          {label === "Search" && (
+            <span className="ml-auto cn-mono text-[9px] opacity-40">
+              ⌘K
+            </span>
+          )}
+        </Link>
+      ))}
+    </nav>
+
+    <div className="mb-3 mt-8 px-3 text-[10px] font-medium uppercase tracking-[.16em] text-[hsl(var(--sidebar-foreground)/.38)]">
+      Manage
+    </div>
+
+    <nav className="space-y-1">
+      {nav.slice(5).map(({ label, href, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          onClick={() => setMobileOpen(false)}
+          className={`cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium ${
+            current?.href === href ? "active" : ""
+          }`}
+          data-testid={`link-nav-${label.toLowerCase().replace(" ", "-")}`}
+        >
+          <Icon className="size-[17px]" strokeWidth={1.8} />
+          <span>{label}</span>
+
+          {label === "Duplicates" && (
+            <span className="ml-auto rounded-md bg-[hsl(var(--accent)/.18)] px-1.5 py-0.5 cn-mono text-[10px] text-[hsl(var(--accent))]">
+              {duplicateCount}
+            </span>
+          )}
+        </Link>
+      ))}
+    </nav>
+
+  </div>
+
+  <div className="shrink-0 space-y-1 px-3 pb-3">
+
+    <Link
+      href="/settings"
+      className="cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium"
+      data-testid="link-nav-settings"
+    >
+      <Settings className="size-[17px]" strokeWidth={1.8} />
+      Settings
+    </Link>
+
+    <Link
+      href="/profile"
+      className="cn-nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-[13px] font-medium"
+      data-testid="link-nav-profile"
+    >
+      <UserRound className="size-[17px]" strokeWidth={1.8} />
+      Profile
+    </Link>
+
+    <div className="mt-4 border-t border-[hsl(var(--sidebar-border))] px-3 pb-1 pt-4">
+      <div className="flex items-center gap-2.5">
+        <span className="grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold text-[hsl(var(--accent-foreground))]">
+          {getInitials(currentUser?.name ?? "")}
+        </span>
+
+        <div className="min-w-0">
+          <div className="truncate text-xs font-medium text-white">
+            {currentUser?.name ?? "User"}
+          </div>
+
+          <div className="truncate text-[10px] text-[hsl(var(--sidebar-foreground)/.48)]">
+            Personal workspace
+          </div>
         </div>
+
+<div className="relative ml-auto">
+ <button
+  type="button"
+  onClick={() => {
+    if (!window.confirm("Want to sign out?")) {
+      return;
+    }
+
+    logout.mutate(undefined, {
+      onSuccess: () => {
+        window.location.href = "/home";
+      },
+      onError: () => {
+        window.location.href = "/home";
+      },
+    });
+  }}
+  className="ml-auto rounded-md p-2 text-[hsl(var(--sidebar-foreground)/.48)] transition-colors hover:bg-[hsl(var(--sidebar-foreground)/.08)] hover:text-white"
+  data-testid="button-account-signout"
+  aria-label="Sign out"
+>
+  <LogOut className="size-4" />
+</button>
+
+  {signOutConfirm && (
+    <div className="absolute bottom-11 right-0 z-50 w-[220px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4 shadow-[0_15px_40px_hsl(221_35%_20%/.22)]">
+      <p className="text-xs font-semibold text-[hsl(var(--foreground))]">
+        Want to sign out?
+      </p>
+
+      <p className="mt-1 text-[10px] leading-4 text-[hsl(var(--muted-foreground))]">
+        You will be signed out of this workspace.
+      </p>
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setSignOutConfirm(false)}
+          className="rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-[10px] font-semibold text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+        >
+          Cancel
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            logout.mutate(undefined, {
+              onSuccess: () => {
+                window.location.href = "/home";
+              },
+              onError: () => {
+                window.location.href = "/home";
+              },
+            });
+          }}
+          className="rounded-md bg-[hsl(var(--destructive))] px-3 py-1.5 text-[10px] font-semibold text-white hover:opacity-90"
+        >
+          Sign out
+        </button>
       </div>
-    </aside>
+    </div>
+  )}
+</div>
+      </div>
+    </div>
+
+  </div>
+
+</aside>
     {mobileOpen && <button className="fixed inset-0 z-20 bg-[hsl(var(--foreground)/.28)] md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-close-navigation" />}
-    <div className="min-w-0 flex-1">
-      <header className="sticky top-0 z-10 flex h-[70px] items-center justify-between border-b border-[hsl(var(--border)/.8)] bg-[hsl(var(--background)/.84)] px-5 backdrop-blur-xl md:px-9">
-        <div className="flex items-center gap-3"><button className="rounded-lg p-2 hover:bg-[hsl(var(--muted))] md:hidden" onClick={() => setMobileOpen(true)} data-testid="button-open-navigation"><Menu className="size-5" /></button><div className="hidden text-sm text-[hsl(var(--muted-foreground))] sm:block">Workspace / <span className="font-medium text-[hsl(var(--foreground))]">{crumbLabel}</span></div></div>
-        <div className="flex items-center gap-2"><button className="rounded-lg p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]" data-testid="button-help"><CircleHelp className="size-[18px]" /></button><button className="relative rounded-lg p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]" data-testid="button-notifications"><Bell className="size-[18px]" /><span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[hsl(var(--accent))]" /></button><Link href="/profile" className="ml-2 grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold text-[hsl(var(--accent-foreground))]" data-testid="link-header-profile">{getInitials(currentUser?.name ?? "")}</Link></div>
-      </header>
+<div className="min-w-0 flex-1 md:ml-[244px]">
+       
+    <header className="sticky top-0 z-10 flex h-[70px] items-center justify-between border-b border-[hsl(var(--border)/.8)] bg-[hsl(var(--background)/.84)] px-5 backdrop-blur-xl md:px-9">
+
+  {/* LEFT */}
+  <div className="flex items-center gap-3">
+
+    <button
+      type="button"
+      className="rounded-lg p-2 hover:bg-[hsl(var(--muted))] md:hidden"
+      onClick={() => setMobileOpen(true)}
+      data-testid="button-open-navigation"
+    >
+      <Menu className="size-5" />
+    </button>
+
+    <div className="hidden text-sm text-[hsl(var(--muted-foreground))] sm:block">
+      Workspace /{" "}
+      <span className="font-medium text-[hsl(var(--foreground))]">
+        {crumbLabel}
+      </span>
+    </div>
+
+  </div>
+
+  {/* RIGHT */}
+  <div className="flex items-center gap-2">
+
+    {/* HELP */}
+  
+{/* HELP */}
+<div className="relative">
+  <button
+    type="button"
+    onClick={() => setHelpOpen((open) => !open)}
+    className="rounded-lg p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+    data-testid="button-help"
+    aria-label="Help"
+  >
+    <CircleHelp className="size-[18px]" />
+  </button>
+
+  {helpOpen && (
+    <div className="absolute right-0 top-12 z-50 w-[360px] overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[0_20px_60px_hsl(221_35%_20%/.18)]">
+
+      {/* HEADER */}
+      <div className="border-b border-[hsl(var(--border))] px-4 py-3">
+        <h3 className="text-sm font-semibold">
+          Help & Support
+        </h3>
+
+        <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+          Quick guides for using CloudNest
+        </p>
+      </div>
+
+      <div className="max-h-[460px] overflow-y-auto p-2">
+
+        {/* QUICK START */}
+        <div className="rounded-lg bg-[hsl(var(--primary)/.06)] p-3">
+          <div className="flex items-center gap-2">
+            <span className="grid size-7 place-items-center rounded-lg bg-[hsl(var(--primary)/.12)] text-[hsl(var(--primary))]">
+              <Sparkles className="size-3.5" />
+            </span>
+
+            <div>
+              <p className="text-xs font-semibold">
+                Quick Start
+              </p>
+
+              <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                Get your workspace ready
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 space-y-2 text-[11px] text-[hsl(var(--muted-foreground))]">
+            <div>1. Connect a cloud provider</div>
+            <div>2. Upload or index your files</div>
+            <div>3. Search your unified file index</div>
+            <div>4. Review detected duplicates</div>
+          </div>
+        </div>
+
+        {/* NAVIGATION */}
+        <div className="mt-2 space-y-1">
+
+          <Link
+            href="/providers"
+            onClick={() => setHelpOpen(false)}
+            className="flex items-center gap-3 rounded-lg p-3 hover:bg-[hsl(var(--muted))]"
+          >
+            <Network className="size-4 text-[hsl(var(--primary))]" />
+
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold">
+                Connect clouds
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                Connect Google Drive, OneDrive or Dropbox.
+              </p>
+            </div>
+
+            <ChevronRight className="size-3.5 text-[hsl(var(--muted-foreground))]" />
+          </Link>
+
+          <Link
+            href="/files"
+            onClick={() => setHelpOpen(false)}
+            className="flex items-center gap-3 rounded-lg p-3 hover:bg-[hsl(var(--muted))]"
+          >
+            <Folder className="size-4 text-[hsl(var(--primary))]" />
+
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold">
+                Manage files
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                Browse, search and manage your unified files.
+              </p>
+            </div>
+
+            <ChevronRight className="size-3.5 text-[hsl(var(--muted-foreground))]" />
+          </Link>
+
+          <Link
+            href="/duplicates"
+            onClick={() => setHelpOpen(false)}
+            className="flex items-center gap-3 rounded-lg p-3 hover:bg-[hsl(var(--muted))]"
+          >
+            <Copy className="size-4 text-[hsl(var(--primary))]" />
+
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold">
+                Duplicate detection
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                Review files that appear to be duplicates.
+              </p>
+            </div>
+
+            <ChevronRight className="size-3.5 text-[hsl(var(--muted-foreground))]" />
+          </Link>
+
+          <Link
+            href="/settings"
+            onClick={() => setHelpOpen(false)}
+            className="flex items-center gap-3 rounded-lg p-3 hover:bg-[hsl(var(--muted))]"
+          >
+            <Settings className="size-4 text-[hsl(var(--primary))]" />
+
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold">
+                Workspace settings
+              </p>
+
+              <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                Manage notifications and file display options.
+              </p>
+            </div>
+
+            <ChevronRight className="size-3.5 text-[hsl(var(--muted-foreground))]" />
+          </Link>
+
+        </div>
+
+        {/* GUIDES */}
+        <div className="mt-3 border-t border-[hsl(var(--border))] pt-3">
+
+          <div className="px-2 pb-2 text-[9px] font-semibold uppercase tracking-[.15em] text-[hsl(var(--muted-foreground))]">
+            Guides
+          </div>
+
+          <div className="space-y-1">
+
+            <div className="rounded-lg p-3 hover:bg-[hsl(var(--muted))]">
+              <div className="flex items-center gap-2">
+                <Bell className="size-3.5 text-[hsl(var(--primary))]" />
+
+                <p className="text-xs font-semibold">
+                  Notifications
+                </p>
+              </div>
+
+              <p className="mt-1 pl-5 text-[10px] leading-4 text-[hsl(var(--muted-foreground))]">
+                The notification bell shows upload, duplicate,
+                sync and other workspace activity.
+              </p>
+            </div>
+
+            <div className="rounded-lg p-3 hover:bg-[hsl(var(--muted))]">
+              <div className="flex items-center gap-2">
+                <PanelLeftClose className="size-3.5 text-[hsl(var(--primary))]" />
+
+                <p className="text-xs font-semibold">
+                  Compact file rows
+                </p>
+              </div>
+
+              <p className="mt-1 pl-5 text-[10px] leading-4 text-[hsl(var(--muted-foreground))]">
+                Enable this option in Settings to fit more
+                files on the screen.
+              </p>
+            </div>
+
+            <div className="rounded-lg p-3 hover:bg-[hsl(var(--muted))]">
+              <div className="flex items-center gap-2">
+                <Keyboard className="size-3.5 text-[hsl(var(--primary))]" />
+
+                <p className="text-xs font-semibold">
+                  Keyboard shortcut
+                </p>
+              </div>
+
+              <div className="mt-2 flex items-center justify-between pl-5">
+                <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
+                  Open search
+                </span>
+
+                <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1.5 py-0.5 font-mono text-[9px]">
+                  ⌘ K
+                </kbd>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+        {/* TROUBLESHOOTING */}
+        <div className="mt-3 border-t border-[hsl(var(--border))] pt-3">
+
+          <div className="px-2 pb-2 text-[9px] font-semibold uppercase tracking-[.15em] text-[hsl(var(--muted-foreground))]">
+            Troubleshooting
+          </div>
+
+          <div className="space-y-1">
+
+            <div className="rounded-lg p-3">
+              <p className="text-xs font-semibold">
+                Provider isn't connecting?
+              </p>
+
+              <p className="mt-1 text-[10px] leading-4 text-[hsl(var(--muted-foreground))]">
+                Open Providers and check the connection status
+                or provider credentials.
+              </p>
+            </div>
+
+            <div className="rounded-lg p-3">
+              <p className="text-xs font-semibold">
+                Files aren't appearing?
+              </p>
+
+              <p className="mt-1 text-[10px] leading-4 text-[hsl(var(--muted-foreground))]">
+                Make sure the provider has finished indexing
+                before searching for the file.
+              </p>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      {/* FOOTER */}
+      <div className="border-t border-[hsl(var(--border))] px-4 py-3">
+        <p className="text-[10px] text-[hsl(var(--muted-foreground))]">
+          Need more help? Check your provider connection or
+          workspace settings.
+        </p>
+      </div>
+
+    </div>
+  )}
+</div>
+
+    {/* NOTIFICATIONS */}
+    <div className="relative">
+
+      <button
+        type="button"
+        onClick={() => setNotificationsOpen((open) => !open)}
+        className="relative rounded-lg p-2 text-[hsl(var(--muted-foreground))] transition-colors hover:bg-[hsl(var(--muted))] hover:text-[hsl(var(--foreground))]"
+        data-testid="button-notifications"
+        aria-label="Notifications"
+      >
+        <Bell className="size-[18px]" />
+
+        {notifications.length > 0 && (
+          <span className="absolute right-1.5 top-1.5 size-1.5 rounded-full bg-[hsl(var(--accent))]" />
+        )}
+      </button>
+
+      {/* NOTIFICATION PANEL */}
+      {notificationsOpen && (
+        <div className="absolute right-0 top-12 z-50 w-[320px] overflow-hidden rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] shadow-[0_20px_60px_hsl(221_35%_20%/.18)]">
+
+          {/* PANEL HEADER */}
+          <div className="flex items-center justify-between border-b border-[hsl(var(--border))] px-4 py-3">
+
+            <div>
+              <h3 className="text-sm font-semibold">
+                Notifications
+              </h3>
+
+              <p className="mt-0.5 text-[10px] text-[hsl(var(--muted-foreground))]">
+                CloudNest activity
+              </p>
+            </div>
+
+            {notifications.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setNotifications([])}
+                className="text-[10px] font-semibold text-[hsl(var(--primary))] hover:underline"
+              >
+                Clear all
+              </button>
+            )}
+
+          </div>
+
+          {/* EMPTY */}
+          {notifications.length === 0 ? (
+
+            <div className="px-4 py-10 text-center">
+
+              <Bell className="mx-auto mb-3 size-6 text-[hsl(var(--muted-foreground))]" />
+
+              <p className="text-xs font-semibold">
+                No notifications
+              </p>
+
+              <p className="mt-1 text-[10px] text-[hsl(var(--muted-foreground))]">
+                You're all caught up.
+              </p>
+
+            </div>
+
+          ) : (
+
+            /* NOTIFICATION LIST */
+            <div className="max-h-[360px] overflow-y-auto">
+
+              {notifications.map((item) => (
+
+                <div
+                  key={item.id}
+                  className="border-b border-[hsl(var(--border)/.7)] px-4 py-3 last:border-0"
+                >
+
+                  <div className="flex items-start gap-3">
+
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
+                      <Bell className="size-4" />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+
+                      <div className="text-xs font-semibold">
+                        {item.type === "success"
+                          ? "Success"
+                          : item.type === "error"
+                            ? "Error"
+                            : item.type === "warning"
+                              ? "Warning"
+                              : "Information"}
+                      </div>
+
+                      <p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">
+                        {item.message}
+                      </p>
+
+                      <p className="mt-1 text-[9px] text-[hsl(var(--muted-foreground))]">
+                        {new Date(item.createdAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </p>
+
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setNotifications((previous) =>
+                          previous.filter((n) => n.id !== item.id)
+                        )
+                      }
+                      className="shrink-0 rounded-md p-1 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]"
+                      aria-label="Dismiss notification"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+
+                  </div>
+
+                </div>
+
+              ))}
+
+            </div>
+
+          )}
+
+        </div>
+      )}
+
+    </div>
+
+    {/* PROFILE */}
+    <Link
+      href="/profile"
+      className="ml-2 grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold text-[hsl(var(--accent-foreground))]"
+      data-testid="link-header-profile"
+    >
+      {getInitials(currentUser?.name ?? "")}
+    </Link>
+
+  </div>
+
+</header>
       <main className="mx-auto max-w-[1440px] px-5 py-7 md:px-9 md:py-9">{children}</main>
     </div>
   </div>;
@@ -155,19 +856,127 @@ function LoadingState({ rows = 4 }: { rows?: number }) { return <div className="
 function ErrorState({ retry }: { retry?: () => void }) { return <div className="cn-card rounded-xl border-[hsl(var(--destructive)/.28)] bg-[hsl(var(--destructive)/.03)] p-8 text-center"><AlertTriangle className="mx-auto mb-3 size-7 text-[hsl(var(--destructive))]" /><h3 className="font-semibold">Could not load this view</h3><p className="mt-1 text-sm text-[hsl(var(--muted-foreground))]">The storage service did not respond. Try again in a moment.</p>{retry && <button onClick={retry} className="cn-btn mt-4 inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs font-semibold" data-testid="button-retry"><RefreshCw className="size-3.5" />Retry</button>}</div>; }
 function EmptyState({ icon: Icon = Folder, title, text }: { icon?: typeof Folder; title: string; text: string }) { return <div className="cn-card rounded-xl p-14 text-center"><span className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]"><Icon className="size-6" /></span><h3 className="font-semibold">{title}</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[hsl(var(--muted-foreground))]">{text}</p></div>; }
 function Kpi({ label, value, detail, icon: Icon, accent = "primary" }: { label: string; value: string; detail: string; icon: typeof HardDrive; accent?: "primary" | "accent" | "destructive" }) { return <div className="cn-card cn-kpi rounded-xl p-5"><div className="mb-5 flex items-start justify-between"><span className={`grid size-9 place-items-center rounded-lg ${accent === "accent" ? "bg-[hsl(var(--accent)/.15)] text-[hsl(var(--accent-foreground))]" : accent === "destructive" ? "bg-[hsl(var(--destructive)/.11)] text-[hsl(var(--destructive))]" : "bg-[hsl(var(--primary)/.11)] text-[hsl(var(--primary))]"}`}><Icon className="size-[17px]" /></span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">LIVE</span></div><div className="cn-mono text-[11px] uppercase tracking-[.08em] text-[hsl(var(--muted-foreground))]">{label}</div><div className="mt-1 text-[25px] font-semibold tracking-[-.04em]">{value}</div><div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{detail}</div></div>; }
-
-function FileRow({ file, onDelete }: { file: CloudFile; onDelete?: (id: string) => void }) {
+function FileRow({
+  file,
+  onDelete,
+}: {
+  file: CloudFile;
+  onDelete?: (id: string) => void;
+}) {
   const Icon = fileIcon(file.mimeType);
+
+  const [compact] = useCloudNestSetting(
+    SETTINGS_KEYS.compact,
+    false
+  );
+
   const download = async () => {
-    const response = await fetch(`/api/files/${file.id}/download`, { credentials: "include" });
-    if (!response.ok) { window.alert("Could not download this file from its provider."); return; }
+    const response = await fetch(`/api/files/${file.id}/download`, {
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      window.alert("Could not download this file from its provider.");
+      return;
+    }
+
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
+
     const link = document.createElement("a");
-    link.href = url; link.download = file.name; link.click();
+    link.href = url;
+    link.download = file.name;
+    link.click();
+
     URL.revokeObjectURL(url);
   };
-  return <div className="group flex items-center gap-3 border-b border-[hsl(var(--border)/.76)] px-4 py-3.5 transition-colors last:border-0 hover:bg-[hsl(var(--muted)/.55)]" data-testid={`row-file-${file.id}`}><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon className="size-[17px]" /></span><Link href={`/files/${file.id}`} className="min-w-0 flex-1" data-testid={`link-file-${file.id}`}><div className="truncate text-sm font-medium group-hover:text-[hsl(var(--primary))]">{file.name}</div><div className="mt-0.5 flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]"><span>{file.provider}</span><span className="size-0.5 rounded-full bg-current" /><span>{titleCase(file.category)}</span></div></Link><div className="hidden w-24 text-right text-xs text-[hsl(var(--muted-foreground))] sm:block">{formatBytes(file.size)}</div><div className="hidden w-28 text-right text-xs text-[hsl(var(--muted-foreground))] lg:block">{formatDate(file.modifiedAt)}</div>{file.isDuplicate && <span className="hidden rounded-md bg-[hsl(var(--accent)/.15)] px-2 py-1 cn-mono text-[9px] text-[hsl(31 70% 35%)] md:block">DUPLICATE</span>}<button className="rounded-md p-1.5 text-[hsl(var(--muted-foreground))] opacity-0 transition-opacity hover:bg-[hsl(var(--primary)/.1)] hover:text-[hsl(var(--primary))] group-hover:opacity-100" onClick={download} data-testid={`button-download-file-${file.id}`}><UploadCloud className="size-3.5 rotate-180" /></button><button className="rounded-md p-1.5 text-[hsl(var(--muted-foreground))] opacity-0 transition-opacity hover:bg-[hsl(var(--destructive)/.1)] hover:text-[hsl(var(--destructive))] group-hover:opacity-100" onClick={() => onDelete?.(file.id)} data-testid={`button-delete-file-${file.id}`}><Trash2 className="size-3.5" /></button></div>;
+
+  return (
+    <div
+      className={`group flex items-center border-b border-[hsl(var(--border)/.76)] transition-colors last:border-0 hover:bg-[hsl(var(--muted)/.55)] ${
+        compact
+          ? "gap-2 px-3 py-2"
+          : "gap-3 px-4 py-3.5"
+      }`}
+      data-testid={`row-file-${file.id}`}
+    >
+      <span
+        className={`grid shrink-0 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))] ${
+          compact ? "size-7" : "size-9"
+        }`}
+      >
+        <Icon
+          className={compact ? "size-[14px]" : "size-[17px]"}
+        />
+      </span>
+
+      <Link
+        href={`/files/${file.id}`}
+        className="min-w-0 flex-1"
+        data-testid={`link-file-${file.id}`}
+      >
+        <div
+          className={`truncate font-medium group-hover:text-[hsl(var(--primary))] ${
+            compact ? "text-xs" : "text-sm"
+          }`}
+        >
+          {file.name}
+        </div>
+
+        <div
+          className={`flex items-center gap-2 text-[hsl(var(--muted-foreground))] ${
+            compact ? "mt-0 text-[10px]" : "mt-0.5 text-[11px]"
+          }`}
+        >
+          <span>{file.provider}</span>
+          <span className="size-0.5 rounded-full bg-current" />
+          <span>{titleCase(file.category)}</span>
+        </div>
+      </Link>
+
+      <div
+        className={`hidden text-right text-[hsl(var(--muted-foreground))] sm:block ${
+          compact ? "w-20 text-[10px]" : "w-24 text-xs"
+        }`}
+      >
+        {formatBytes(file.size)}
+      </div>
+
+      <div
+        className={`hidden text-right text-[hsl(var(--muted-foreground))] lg:block ${
+          compact ? "w-24 text-[10px]" : "w-28 text-xs"
+        }`}
+      >
+        {formatDate(file.modifiedAt)}
+      </div>
+
+      {file.isDuplicate && (
+        <span
+          className={`hidden rounded-md bg-[hsl(var(--accent)/.15)] cn-mono text-[9px] text-[hsl(31 70% 35%)] md:block ${
+            compact ? "px-1.5 py-0.5" : "px-2 py-1"
+          }`}
+        >
+          DUPLICATE
+        </span>
+      )}
+
+      <button
+        className="rounded-md p-1.5 text-[hsl(var(--muted-foreground))] opacity-0 transition-opacity hover:bg-[hsl(var(--primary)/.1)] hover:text-[hsl(var(--primary))] group-hover:opacity-100"
+        onClick={download}
+        data-testid={`button-download-file-${file.id}`}
+      >
+        <UploadCloud className="size-3.5 rotate-180" />
+      </button>
+
+      <button
+        className="rounded-md p-1.5 text-[hsl(var(--muted-foreground))] opacity-0 transition-opacity hover:bg-[hsl(var(--destructive)/.1)] hover:text-[hsl(var(--destructive))] group-hover:opacity-100"
+        onClick={() => onDelete?.(file.id)}
+        data-testid={`button-delete-file-${file.id}`}
+      >
+        <Trash2 className="size-3.5" />
+      </button>
+    </div>
+  );
 }
 
 function DashboardPage() {
@@ -180,14 +989,34 @@ function DashboardPage() {
   });
 
   const currentUser = meQ.data as CurrentUser | undefined;
-  const dashboard = q.data as Dashboard | undefined;
+const dashboard = q.data as Dashboard | undefined;
 
-  return (
-    <PageFrame>
-      <PageHeader
-        eyebrow="Monday, October 14 · 09:41"
-        title={`Good morning, ${currentUser?.name ?? "User"}.`}
-        description="Your cloud workspace at a glance. Everything is accounted for."
+const now = new Date();
+
+const greeting =
+  now.getHours() < 12
+    ? "Good morning"
+    : now.getHours() < 18
+      ? "Good afternoon"
+      : "Good evening";
+
+const currentDateTime =
+  now.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  }) +
+  " · " +
+  now.toLocaleTimeString(undefined, {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+return (
+  <PageFrame>
+    <PageHeader
+      eyebrow={currentDateTime}
+      title={`${greeting}, ${currentUser?.name ?? "User"}.`}
         action={
           <Link
             href="/files"
@@ -357,8 +1186,50 @@ function FilesPage({ searchMode = false, category }: { searchMode?: boolean; cat
     upload.mutate(
       { data: { file, ...(uploadProvider ? { provider: uploadProvider } : {}), ...(uploadCategory ? { category: uploadCategory } : {}) } },
       {
-        onSuccess: () => { setUploadOpen(false); setUploadCategory(""); queryClient.invalidateQueries({ queryKey: getListFilesQueryKey(params) }); queryClient.invalidateQueries({ queryKey: getListDuplicatesQueryKey() }); queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() }); },
-        onError: (err) => setUploadError(err instanceof Error ? err.message : "Upload failed"),
+onSuccess: (result) => {
+  setUploadOpen(false);
+  setUploadCategory("");
+
+  const uploadedFile = result as CloudFile;
+
+  window.dispatchEvent(
+    new CustomEvent("cloudnest-notification", {
+      detail: {
+        message: uploadedFile.isDuplicate
+          ? `Duplicate detected: "${file.name}" matches an existing file.`
+          : `"${file.name}" uploaded successfully.`,
+        type: uploadedFile.isDuplicate ? "warning" : "success",
+      },
+    })
+  );
+
+  queryClient.invalidateQueries({
+    queryKey: getListFilesQueryKey(params),
+  });
+
+  queryClient.invalidateQueries({
+    queryKey: getListDuplicatesQueryKey(),
+  });
+
+  queryClient.invalidateQueries({
+    queryKey: getListProvidersQueryKey(),
+  });
+},
+
+onError: (err) => {
+  setUploadError(
+    err instanceof Error ? err.message : "Upload failed"
+  );
+
+  window.dispatchEvent(
+    new CustomEvent("cloudnest-notification", {
+      detail: {
+        message: `Upload failed for "${file.name}".`,
+        type: "error",
+      },
+    })
+  );
+},
       },
     );
   };
@@ -450,21 +1321,119 @@ function ProvidersPage() {
   const [notice, setNotice] = useState("");
   const [syncingId, setSyncingId] = useState<string | null>(null);
   const providers = q.data as Provider[] | undefined;
-  const toggle = (p: Provider) => { if (!p.connected && p.configured) { window.location.assign(`/api/providers/${p.id}/connect`); return; } const mutation = p.connected ? disconnect : connect; mutation.mutate({ provider: p.id }, { onSuccess: (result) => { if (result) setNotice(result.statusMessage || `${p.name} connection updated.`); queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() }); } }); };
-  const syncProvider = (p: Provider) => {
-    setSyncingId(p.id); setNotice("");
-    sync.mutate({ provider: p.id }, {
-      onSuccess: (summary) => {
-        const s = summary as SyncSummary;
-        setNotice(`${p.name} sync complete: ${s.imported} new file(s) indexed, ${s.updated} updated, ${s.unchanged} already up to date (${s.totalRemote} found on ${p.name}).`);
-        queryClient.invalidateQueries({ queryKey: getListFilesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getListDuplicatesQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetDashboardQueryKey() });
-      },
-      onError: (err) => setNotice(err instanceof Error ? err.message : "Sync failed"),
-      onSettled: () => setSyncingId(null),
-    });
+   const toggle = (p: Provider) => {
+    if (!p.connected && p.configured) {
+      window.location.assign(`/api/providers/${p.id}/connect`);
+      return;
+    }
+
+    const mutation = p.connected ? disconnect : connect;
+
+    mutation.mutate(
+      { provider: p.id },
+      {
+        onSuccess: (result) => {
+          if (result) {
+            setNotice(
+              result.statusMessage || `${p.name} connection updated.`
+            );
+          }
+
+          // Refresh provider status
+          queryClient.invalidateQueries({
+            queryKey: getListProvidersQueryKey(),
+          });
+
+          // Refresh files
+          queryClient.invalidateQueries({
+            queryKey: getListFilesQueryKey(),
+          });
+
+          // Refresh duplicates
+          queryClient.invalidateQueries({
+            queryKey: getListDuplicatesQueryKey(),
+          });
+
+          // Refresh dashboard counts and storage
+          queryClient.invalidateQueries({
+            queryKey: getGetDashboardQueryKey(),
+          });
+
+          // Refresh analytics
+          queryClient.invalidateQueries({
+            queryKey: getGetAnalyticsQueryKey(),
+          });
+
+          // Refresh activity
+          queryClient.invalidateQueries({
+            queryKey: getListActivityQueryKey(),
+          });
+        },
+
+        onError: (err) => {
+          setNotice(
+            err instanceof Error
+              ? err.message
+              : "Provider connection update failed"
+          );
+        },
+      }
+    );
   };
+
+  const syncProvider = (p: Provider) => {
+    setSyncingId(p.id);
+    setNotice("");
+
+    sync.mutate(
+      { provider: p.id },
+      {
+        onSuccess: (summary) => {
+          const s = summary as SyncSummary;
+
+          setNotice(
+            `${p.name} sync complete: ${s.imported} new file(s) indexed, ${s.updated} updated, ${s.unchanged} already up to date (${s.totalRemote} found on ${p.name}).`
+          );
+
+          window.dispatchEvent(
+            new CustomEvent("cloudnest-notification", {
+              detail: {
+                message: `${p.name} finished indexing. ${s.imported} new file(s) indexed.`,
+                type: "success",
+              },
+            })
+          );
+
+          // Refresh files
+          queryClient.invalidateQueries({
+            queryKey: getListFilesQueryKey(),
+          });
+
+          // Refresh duplicates
+          queryClient.invalidateQueries({
+            queryKey: getListDuplicatesQueryKey(),
+          });
+
+          // Refresh dashboard counts and storage
+          queryClient.invalidateQueries({
+            queryKey: getGetDashboardQueryKey(),
+          });
+        },
+
+        onError: (err) => {
+          setNotice(
+            err instanceof Error ? err.message : "Sync failed"
+          );
+        },
+
+        onSettled: () => {
+          setSyncingId(null);
+        },
+      }
+    );
+  };
+       
+
   return <PageFrame><PageHeader eyebrow="Connections" title="Your cloud perimeter." description="Connect providers once. CloudNest keeps the index unified and your credentials with the provider." action={<div className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary)/.08)] px-3 py-2 text-xs font-medium text-[hsl(var(--primary))]"><ShieldCheck className="size-4" />Credentials stay with providers</div>} />{notice && <div className="mb-5 flex items-center justify-between rounded-lg bg-[hsl(var(--primary)/.08)] px-4 py-3 text-xs text-[hsl(var(--primary))]" data-testid="status-provider-message"><span className="flex items-center gap-2"><Check className="size-4" />{notice}</span><button onClick={() => setNotice("")} data-testid="button-dismiss-provider-message"><X className="size-4" /></button></div>}{q.isLoading ? <LoadingState rows={3} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : <div className="grid gap-4 lg:grid-cols-3">{providers?.map(p => <ProviderCard key={p.id} provider={p} onToggle={() => toggle(p)} onSync={() => syncProvider(p)} busy={connect.isPending || disconnect.isPending} syncing={syncingId === p.id} />)}</div>}{!q.isLoading && !providers?.length && <EmptyState icon={Network} title="No providers registered" text="The API has not returned any supported cloud providers yet." />}</PageFrame>;
 }
 function ProviderCard({ provider: p, onToggle, onSync, busy, syncing }: { provider: Provider; onToggle: () => void; onSync: () => void; busy: boolean; syncing: boolean }) { const pct = p.totalBytes ? Math.round(p.usedBytes / p.totalBytes * 100) : 0; return <article className="cn-card rounded-xl p-5"><div className="flex items-start justify-between"><div className="grid size-11 place-items-center rounded-xl text-lg font-bold" style={{ backgroundColor: `${providerColor(p.name)}18`, color: providerColor(p.name) }}>{p.name === "Google Drive" ? "G" : p.name === "OneDrive" ? "O" : "D"}</div><span className={`flex items-center gap-1.5 rounded-full px-2 py-1 cn-mono text-[9px] ${p.connected ? "bg-[hsl(159 46% 42%/.12)] text-[hsl(159 46% 34%)]" : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"}`}><i className={`size-1.5 rounded-full ${p.connected ? "bg-[hsl(159 46% 42%)]" : "bg-[hsl(var(--muted-foreground))]"}`} />{p.connected ? "CONNECTED" : "OFFLINE"}</span></div><h2 className="mt-5 font-semibold">{p.name}</h2><p className="mt-1 min-h-10 text-xs leading-5 text-[hsl(var(--muted-foreground))]">{p.statusMessage || (p.configured ? "Ready to sync your file index." : "Configuration required by the provider.")}</p><div className="mt-5"><div className="mb-2 flex justify-between text-[11px]"><span className="text-[hsl(var(--muted-foreground))]">Storage used</span><span className="cn-mono">{formatBytes(p.usedBytes)} / {formatBytes(p.totalBytes)}</span></div><div className="cn-progress h-1.5 rounded-full"><span style={{ width: `${pct}%`, backgroundColor: providerColor(p.name) }} /></div></div><div className="mt-6 flex gap-2">{p.connected && <button disabled={syncing} onClick={onSync} className="cn-btn inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid={`button-sync-${p.id}`}><RefreshCw className={`size-3.5 ${syncing ? "animate-spin" : ""}`} />{syncing ? "Syncing…" : "Sync files"}</button>}<button disabled={busy} onClick={onToggle} className={`cn-btn rounded-lg border px-3 py-2.5 text-xs font-semibold ${p.connected ? "flex-1 border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))]" : "w-full border-transparent bg-[hsl(var(--primary))] text-white hover:bg-[hsl(var(--primary)/.88)]"}`} data-testid={`button-${p.connected ? "disconnect" : "connect"}-${p.id}`}>{busy ? "Updating…" : p.connected ? "Disconnect" : p.configured ? "Connect provider" : "Check configuration"}</button></div></article>; }
@@ -729,24 +1698,541 @@ function ProfilePage() {
 }
 
 function SettingsPage() {
-  const [compact, setCompact] = useState(false); const [notify, setNotify] = useState(true);
-  const providersQ = useListProviders({ query: { queryKey: getListProvidersQueryKey() } });
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [compact, setCompact] = useCloudNestSetting(
+    SETTINGS_KEYS.compact,
+    false
+  );
+
+  const [notify, setNotify] = useCloudNestSetting(
+    SETTINGS_KEYS.notifications,
+    true
+  );
+
+  const providersQ = useListProviders({
+    query: {
+      queryKey: getListProvidersQueryKey(),
+    },
+  });
+
   const disconnect = useDisconnectProvider();
   const queryClient = useQueryClient();
   const logout = useLogout();
   const [, setLocation] = useLocation();
-  const providers = (providersQ.data as Provider[] | undefined)?.filter(p => p.connected) ?? [];
-  const signOut = () => { logout.mutate(undefined, { onSuccess: () => setLocation("/login"), onError: () => setLocation("/login") }); };
+
+  const providers =
+    (providersQ.data as Provider[] | undefined)?.filter(
+      (p) => p.connected
+    ) ?? [];
+
+  const signOut = () => {
+    logout.mutate(undefined, {
+      onSuccess: () => {
+        queryClient.removeQueries({
+          queryKey: getGetMeQueryKey(),
+        });
+
+        setLocation("/home");
+      },
+
+      onError: () => {
+        queryClient.removeQueries({
+          queryKey: getGetMeQueryKey(),
+        });
+
+        setLocation("/home");
+      },
+    });
+  };
+
   const disconnectAll = () => {
     if (!providers.length) return;
-    if (!window.confirm(`Disconnect all ${providers.length} connected provider(s)? CloudNest will stop indexing new files from them.`)) return;
-    Promise.all(providers.map(p => disconnect.mutateAsync({ provider: p.id }))).then(() => queryClient.invalidateQueries({ queryKey: getListProvidersQueryKey() }));
+
+    if (
+      !window.confirm(
+        `Disconnect all ${providers.length} connected provider(s)? CloudNest will stop indexing new files from them.`
+      )
+    ) {
+      return;
+    }
+
+    Promise.all(
+      providers.map((p) =>
+        disconnect.mutateAsync({
+          provider: p.id,
+        })
+      )
+    ).then(() =>
+      queryClient.invalidateQueries({
+        queryKey: getListProvidersQueryKey(),
+      })
+    );
   };
-  return <PageFrame><PageHeader eyebrow="Preferences" title="Tune the cockpit." description="Keep the workspace aligned with how you actually work." /><div className="cn-card divide-y divide-[hsl(var(--border))] rounded-xl"><SettingRow icon={Bell} title="Activity notifications" text="Show a small alert when providers finish indexing." control={<button onClick={() => setNotify(!notify)} className={`relative h-6 w-11 rounded-full transition-colors ${notify ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--muted))]"}`} data-testid="button-toggle-notifications"><span className={`absolute top-1 size-4 rounded-full bg-white transition-transform ${notify ? "left-6" : "left-1"}`} /></button>} /><SettingRow icon={PanelLeftClose} title="Compact file rows" text="Fit more files into the unified browser." control={<button onClick={() => setCompact(!compact)} className={`relative h-6 w-11 rounded-full transition-colors ${compact ? "bg-[hsl(var(--primary))]" : "bg-[hsl(var(--muted))]"}`} data-testid="button-toggle-compact"><span className={`absolute top-1 size-4 rounded-full bg-white transition-transform ${compact ? "left-6" : "left-1"}`} /></button>} /><SettingRow icon={Network} title="Connected clouds" text={`${providers.length} provider(s) connected. Manage individually from Providers.`} control={<button onClick={disconnectAll} disabled={!providers.length || disconnect.isPending} className="rounded-lg border border-[hsl(var(--destructive)/.3)] px-3 py-2 text-xs font-semibold text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/.07)] disabled:opacity-40" data-testid="button-disconnect-all">Disconnect all</button>} /><SettingRow icon={LogOut} title="Session" text="Sign out of this CloudNest workspace on this device." control={<button onClick={signOut} disabled={logout.isPending} className="rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-sign-out">{logout.isPending ? "Signing out…" : "Sign out"}</button>} /></div><div className="mt-6 rounded-xl border border-[hsl(var(--accent)/.3)] bg-[hsl(var(--accent)/.08)] p-5"><div className="flex gap-3"><CircleHelp className="mt-0.5 size-4 shrink-0 text-[hsl(31 70% 35%)]" /><div><h2 className="text-sm font-semibold">Need a hand?</h2><p className="mt-1 text-xs leading-5 text-[hsl(var(--muted-foreground))]">CloudNest is designed to be readable at a glance. If a provider needs credentials, its connection card will say so plainly.</p></div></div></div></PageFrame>;
-}
+
+  return (
+    <PageFrame>
+      <PageHeader
+        eyebrow="Preferences"
+        title="Tune the cockpit."
+        description="Keep the workspace aligned with how you actually work."
+      />
+
+      <div className="cn-card divide-y divide-[hsl(var(--border))] rounded-xl">
+
+        <SettingRow
+          icon={Bell}
+          title="Activity notifications"
+          text="Show a small alert when providers finish indexing."
+          control={
+            <button
+              type="button"
+              onClick={() => setNotify(!notify)}
+              aria-pressed={notify}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-all duration-200 ${
+                notify
+                  ? "bg-[hsl(var(--primary))]"
+                  : "bg-[hsl(var(--muted))]"
+              }`}
+              data-testid="button-toggle-notifications"
+            >
+              <span
+                className={`absolute top-1 size-5 rounded-full bg-white shadow-sm transition-all duration-200 ${
+                  notify ? "left-6" : "left-1"
+                }`}
+              />
+            </button>
+          }
+        />
+
+        <SettingRow
+          icon={PanelLeftClose}
+          title="Compact file rows"
+          text="Fit more files into the unified browser."
+          control={
+            <button
+              type="button"
+              onClick={() => setCompact(!compact)}
+              aria-pressed={compact}
+              className={`relative h-7 w-12 shrink-0 rounded-full transition-all duration-200 ${
+                compact
+                  ? "bg-[hsl(var(--primary))]"
+                  : "bg-[hsl(var(--muted))]"
+              }`}
+              data-testid="button-toggle-compact"
+            >
+              <span
+                className={`absolute top-1 size-5 rounded-full bg-white shadow-sm transition-all duration-200 ${
+                  compact ? "left-6" : "left-1"
+                }`}
+              />
+            </button>
+          }
+        />
+
+        <SettingRow
+          icon={Network}
+          title="Connected clouds"
+          text={`${providers.length} provider(s) connected. Manage individually from Providers.`}
+          control={
+            <button
+              type="button"
+              onClick={disconnectAll}
+              disabled={
+                !providers.length ||
+                disconnect.isPending
+              }
+              className="rounded-lg border border-[hsl(var(--destructive)/.3)] px-3 py-2 text-xs font-semibold text-[hsl(var(--destructive))] hover:bg-[hsl(var(--destructive)/.07)] disabled:opacity-40"
+              data-testid="button-disconnect-all"
+            >
+              Disconnect all
+            </button>
+          }
+        />
+
+        <SettingRow
+          icon={LogOut}
+          title="Session"
+          text="Sign out of this CloudNest workspace on this device."
+          control={
+            <button
+              type="button"
+              onClick={signOut}
+              disabled={logout.isPending}
+              className="rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold hover:bg-[hsl(var(--muted))]"
+              data-testid="button-sign-out"
+            >
+              {logout.isPending
+                ? "Signing out…"
+                : "Sign out"}
+            </button>
+          }
+        />
+
+      </div>
+
+      
+
+  <div className="mt-6 rounded-xl border border-[hsl(var(--accent)/.3)] bg-[hsl(var(--accent)/.08)] p-5">
+  <div className="flex items-center gap-3">
+    <CircleHelp className="size-4 shrink-0 text-[hsl(31 70% 35%)]" />
+
+    <div className="min-w-0 flex-1">
+      <h2 className="text-sm font-semibold">
+        Need a hand?
+      </h2>
+
+      <p className="mt-1 text-xs leading-5 text-[hsl(var(--muted-foreground))]">
+        CloudNest is designed to be readable at a glance.
+        If a provider needs credentials, its connection card
+        will say so plainly.
+      </p>
+    </div>
+
+    <button
+      type="button"
+      onClick={() => setHelpOpen(!helpOpen)}
+      className="shrink-0 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2 text-xs font-semibold transition-colors hover:bg-[hsl(var(--muted))]"
+    >
+      {helpOpen ? "Hide" : "Explore"}
+      <ChevronRight
+        className={`ml-1 inline-block size-3 transition-transform ${
+          helpOpen ? "rotate-90" : ""
+        }`}
+      />
+    </button>
+  </div>
+
+  {helpOpen && (
+    <div className="mt-5 grid gap-3 border-t border-[hsl(var(--border)/.7)] pt-5 sm:grid-cols-2">
+
+      <Link
+        href="/providers"
+        className="group flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] p-3 transition-colors hover:bg-[hsl(var(--card))]"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
+          <Network className="size-4" />
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold">
+            Manage providers
+          </span>
+          <span className="mt-1 block text-[10px] text-[hsl(var(--muted-foreground))]">
+            Connect or manage your cloud storage.
+          </span>
+        </span>
+
+        <ChevronRight className="size-4 text-[hsl(var(--muted-foreground))] transition-transform group-hover:translate-x-0.5" />
+      </Link>
+
+      <Link
+        href="/files"
+        className="group flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] p-3 transition-colors hover:bg-[hsl(var(--card))]"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
+          <Folder className="size-4" />
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold">
+            Browse files
+          </span>
+          <span className="mt-1 block text-[10px] text-[hsl(var(--muted-foreground))]">
+            Search and manage your unified files.
+          </span>
+        </span>
+
+        <ChevronRight className="size-4 text-[hsl(var(--muted-foreground))] transition-transform group-hover:translate-x-0.5" />
+      </Link>
+
+      <Link
+        href="/duplicates"
+        className="group flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] p-3 transition-colors hover:bg-[hsl(var(--card))]"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--accent)/.15)] text-[hsl(31 70% 35%)]">
+          <Copy className="size-4" />
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold">
+            Review duplicates
+          </span>
+          <span className="mt-1 block text-[10px] text-[hsl(var(--muted-foreground))]">
+            Find and review duplicate files.
+          </span>
+        </span>
+
+        <ChevronRight className="size-4 text-[hsl(var(--muted-foreground))] transition-transform group-hover:translate-x-0.5" />
+      </Link>
+
+      <Link
+        href="/activity"
+        className="group flex items-center gap-3 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] p-3 transition-colors hover:bg-[hsl(var(--card))]"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.1)] text-[hsl(var(--primary))]">
+          <ActivityIcon className="size-4" />
+        </span>
+
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-semibold">
+            Recent activity
+          </span>
+          <span className="mt-1 block text-[10px] text-[hsl(var(--muted-foreground))]">
+            See uploads, syncs, and workspace events.
+          </span>
+        </span>
+
+        <ChevronRight className="size-4 text-[hsl(var(--muted-foreground))] transition-transform group-hover:translate-x-0.5" />
+      </Link>
+
+    </div>
+  )}
+</div>
+      
+    </PageFrame>
+  );
+}; 
+
 function SettingRow({ icon: Icon, title, text, control }: { icon: typeof Bell; title: string; text: string; control: ReactNode }) { return <div className="flex items-center gap-4 px-5 py-5"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon className="size-4" /></span><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{title}</div><div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{text}</div></div>{control}</div>; }
 
-function HomePage() { const q = useHealthCheck({ query: { queryKey: getHealthCheckQueryKey() } }); return <div className="cn-app cn-grid min-h-[100dvh]"><header className="mx-auto flex max-w-6xl items-center justify-between px-5 py-6 md:px-10"><Logo /><Link href="/dashboard" className="cn-btn rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--card))]" data-testid="link-open-workspace">Open workspace <ChevronRight className="ml-1 inline size-3.5" /></Link></header><main className="mx-auto grid max-w-6xl items-center gap-14 px-5 pb-20 pt-16 md:grid-cols-[1.05fr_.95fr] md:px-10 md:pb-28 md:pt-24"><div className="cn-reveal"><div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[hsl(var(--primary)/.2)] bg-[hsl(var(--primary)/.07)] px-3 py-1.5 cn-mono text-[10px] text-[hsl(var(--primary))]"><span className="size-1.5 rounded-full bg-[hsl(var(--primary))]" />{q.data?.status === "ok" ? "ALL SYSTEMS NOMINAL" : "CLOUD INDEX ONLINE"}</div><h1 className="cn-display max-w-xl text-[54px] font-semibold leading-[.94] tracking-[-.06em] text-[hsl(var(--foreground))] md:text-[78px]">Your clouds,<br /><span className="text-[hsl(var(--primary))]">finally in formation.</span></h1><p className="mt-7 max-w-md text-base leading-7 text-[hsl(var(--muted-foreground))]">CloudNest brings Drive, OneDrive, and Dropbox into one clear workspace — so your files feel closer, not scattered.</p><div className="mt-8 flex flex-wrap gap-3"><Link href="/dashboard" className="cn-btn cn-btn-primary inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-5 py-3 text-sm font-semibold text-white" data-testid="link-start-organizing">Start organizing <ChevronRight className="size-4" /></Link><Link href="/providers" className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.65)] px-5 py-3 text-sm font-semibold hover:bg-[hsl(var(--card))]" data-testid="link-connect-clouds">Connect clouds</Link></div></div><div className="cn-reveal cn-reveal-delay-2 relative"><div className="absolute -inset-8 rounded-[3rem] bg-[hsl(188_64%_88%/.45)] blur-3xl" /><div className="relative rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.86)] p-4 shadow-[0_24px_70px_hsl(221_35%_20%/.12)] backdrop-blur-xl"><div className="flex items-center justify-between border-b border-[hsl(var(--border))] pb-4"><div className="flex items-center gap-2"><span className="size-2 rounded-full bg-[hsl(var(--primary))]" /><span className="cn-mono text-[10px] uppercase tracking-widest text-[hsl(var(--muted-foreground))]">How it works</span></div></div><div className="space-y-3 py-4">{[["1", "Connect Drive, OneDrive, or Dropbox", Network], ["2", "Upload — CloudNest hashes, categorizes, and files it automatically", Sparkles], ["3", "Search, share, and track it all from one index", ShieldCheck]].map(([step, text, Icon]) => <div key={step as string} className="flex items-center gap-3 rounded-xl bg-[hsl(var(--secondary)/.7)] p-3"><span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.12)] text-xs font-bold text-[hsl(var(--primary))]">{step as string}</span><span className="flex-1 text-xs leading-5">{text as string}</span>{typeof Icon !== "string" && <Icon className="size-4 shrink-0 text-[hsl(var(--muted-foreground))]" />}</div>)}</div><div className="space-y-2 rounded-xl border border-[hsl(var(--border))] p-4"><div className="text-xs font-semibold">Providers CloudNest unifies</div>{["Google Drive", "OneDrive", "Dropbox"].map(label => <div key={label} className="flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]"><i className="size-2 rounded-full" style={{ backgroundColor: providerColor(label) }} />{label}</div>)}</div><div className="mt-3 flex items-center gap-2 rounded-lg bg-[hsl(var(--primary)/.07)] px-3 py-2 text-[11px] text-[hsl(var(--primary))]"><ShieldCheck className="size-3.5" />Your storage numbers appear here once you connect a provider</div></div></div></main><section className="mx-auto grid max-w-6xl gap-3 px-5 pb-20 md:grid-cols-3 md:px-10"><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5"><Network className="mb-8 size-5 text-[hsl(var(--primary))]" /><h3 className="font-semibold">One calm index</h3><p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">See every file, provider, and category without opening three tabs.</p></div><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5"><Copy className="mb-8 size-5 text-[hsl(var(--accent-foreground))]" /><h3 className="font-semibold">No wasted space</h3><p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">Find duplicates with enough context to make the safe call.</p></div><div className="rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5"><LockKeyhole className="mb-8 size-5 text-[hsl(var(--primary))]" /><h3 className="font-semibold">Sharing with edges</h3><p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">Create links that expire, track access, and leave no ambiguity.</p></div></section></div>; }
+function HomePage() {
+  const q = useHealthCheck({
+    query: { queryKey: getHealthCheckQueryKey() }
+  });
+
+  const meQ = useGetMe({
+    query: { queryKey: getGetMeQueryKey() }
+  });
+
+  const isLoggedIn = !!meQ.data;
+
+  const startDestination = isLoggedIn ? "/dashboard" : "/login";
+  const workspaceDestination = isLoggedIn ? "/dashboard" : "/login";
+  const providersDestination = isLoggedIn ? "/providers" : "/login";
+
+  return (
+    <div className="cn-app min-h-[100dvh]">
+
+      {/* =========================
+          HEADER
+      ========================== */}
+      <header className="w-full">
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5 md:px-10 lg:px-12">
+          <Logo />
+
+          <div className="flex items-center gap-3">
+            {!isLoggedIn && (
+              <Link
+                href="/login"
+                className="cn-btn rounded-lg px-4 py-2.5 text-xs font-semibold text-[hsl(var(--foreground))] hover:bg-[hsl(var(--muted))]"
+                data-testid="link-sign-in"
+              >
+                Sign in
+              </Link>
+            )}
+
+            <Link
+              href={workspaceDestination}
+              className="cn-btn inline-flex items-center gap-1 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.7)] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--card))]"
+              data-testid="link-open-workspace"
+            >
+              Open workspace
+              <ChevronRight className="size-3.5" />
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* =========================
+          HERO
+      ========================== */}
+      <main className="w-full">
+        <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-12 px-6 pb-12 pt-12 md:grid-cols-[1.08fr_.92fr] md:gap-12 md:px-10 md:pb-14 md:pt-14 lg:grid-cols-[1.1fr_.9fr] lg:px-12">
+
+          {/* =====================
+              LEFT HERO CONTENT
+          ====================== */}
+          <div className="cn-reveal flex flex-col items-start justify-start">
+
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[hsl(var(--primary)/.2)] bg-[hsl(var(--primary)/.07)] px-3 py-1.5 cn-mono text-[10px] text-[hsl(var(--primary))]">
+              <span className="size-1.5 rounded-full bg-[hsl(var(--primary))]" />
+
+              {q.data?.status === "ok"
+                ? "ALL SYSTEMS NOMINAL"
+                : "CLOUD INDEX ONLINE"}
+            </div>
+
+            <h1 className="cn-display max-w-[700px] text-left text-[50px] font-semibold leading-[.94] tracking-[-.055em] text-[hsl(var(--foreground))] sm:text-[60px] md:text-[68px] lg:text-[76px]">
+              Your clouds,
+              <br />
+              <span className="text-[hsl(var(--primary))]">
+                finally in formation.
+              </span>
+            </h1>
+
+            <p className="mt-6 max-w-[590px] text-left text-[15px] leading-7 text-[hsl(var(--muted-foreground))]">
+              CloudNest brings Drive, OneDrive, and Dropbox into one clear
+              workspace — so your files feel closer, not scattered.
+            </p>
+
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              <Link
+                href={startDestination}
+                className="cn-btn cn-btn-primary inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-5 py-3 text-sm font-semibold text-white"
+                data-testid="link-start-organizing"
+              >
+                Start organizing
+                <ChevronRight className="size-4" />
+              </Link>
+
+              <Link
+                href={providersDestination}
+                className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.65)] px-5 py-3 text-sm font-semibold hover:bg-[hsl(var(--card))]"
+                data-testid="link-connect-clouds"
+              >
+                Connect clouds
+              </Link>
+            </div>
+          </div>
+
+          {/* =====================
+              RIGHT HERO CARD
+          ====================== */}
+          <div className="cn-reveal cn-reveal-delay-2 relative flex w-full items-start justify-end">
+
+            <div className="absolute -inset-8 rounded-[3rem] bg-[hsl(188_64%_88%/.45)] blur-3xl" />
+
+            <div className="relative w-full max-w-[500px] rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.86)] p-5 shadow-[0_24px_70px_hsl(221_35%_20%/.12)] backdrop-blur-xl">
+
+              {/* CARD HEADER */}
+              <div className="flex items-center justify-between border-b border-[hsl(var(--border))] pb-4">
+                <div className="flex items-center gap-2">
+                  <span className="size-2 rounded-full bg-[hsl(var(--primary))]" />
+
+                  <span className="cn-mono text-[10px] uppercase tracking-widest text-[hsl(var(--muted-foreground))]">
+                    How it works
+                  </span>
+                </div>
+              </div>
+
+              {/* STEPS */}
+              <div className="space-y-3 py-4">
+                {[
+                  ["1", "Connect Drive, OneDrive, or Dropbox", Network],
+                  [
+                    "2",
+                    "Upload — CloudNest hashes, categorizes, and files it automatically",
+                    Sparkles
+                  ],
+                  [
+                    "3",
+                    "Search, share, and track it all from one index",
+                    ShieldCheck
+                  ]
+                ].map(([step, text, Icon]) => (
+                  <div
+                    key={step as string}
+                    className="flex items-center gap-3 rounded-xl bg-[hsl(var(--secondary)/.7)] p-3"
+                  >
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[hsl(var(--primary)/.12)] text-xs font-bold text-[hsl(var(--primary))]">
+                      {step as string}
+                    </span>
+
+                    <span className="flex-1 text-xs leading-5">
+                      {text as string}
+                    </span>
+
+                    {typeof Icon !== "string" && (
+                      <Icon className="size-4 shrink-0 text-[hsl(var(--muted-foreground))]" />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* PROVIDERS */}
+              <div className="space-y-2 rounded-xl border border-[hsl(var(--border))] p-4">
+                <div className="text-xs font-semibold">
+                  Providers CloudNest unifies
+                </div>
+
+                {["Google Drive", "OneDrive", "Dropbox"].map((label) => (
+                  <div
+                    key={label}
+                    className="flex items-center gap-2 text-[11px] text-[hsl(var(--muted-foreground))]"
+                  >
+                    <i
+                      className="size-2 rounded-full"
+                      style={{ backgroundColor: providerColor(label) }}
+                    />
+
+                    {label}
+                  </div>
+                ))}
+              </div>
+
+              {/* STORAGE MESSAGE */}
+              <div className="mt-3 flex items-center gap-2 rounded-lg bg-[hsl(var(--primary)/.07)] px-3 py-2 text-[11px] text-[hsl(var(--primary))]">
+                <ShieldCheck className="size-3.5" />
+
+                Your storage numbers appear here once you connect a provider
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </main>
+
+      {/* =========================
+          FEATURES
+      ========================== */}
+      <section className="w-full">
+        <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-4 px-6 pb-16 md:grid-cols-3 md:px-10 lg:px-12">
+
+          {/* FEATURE 1 */}
+          <div className="min-h-[155px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5">
+            <Network className="mb-6 size-5 text-[hsl(var(--primary))]" />
+
+            <h3 className="font-semibold">
+              One calm index
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">
+              See every file, provider, and category without opening three tabs.
+            </p>
+          </div>
+
+          {/* FEATURE 2 */}
+          <div className="min-h-[155px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5">
+            <Copy className="mb-6 size-5 text-[hsl(var(--accent-foreground))]" />
+
+            <h3 className="font-semibold">
+              No wasted space
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">
+              Find duplicates with enough context to make the safe call.
+            </p>
+          </div>
+
+          {/* FEATURE 3 */}
+          <div className="min-h-[155px] rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card)/.6)] p-5">
+            <LockKeyhole className="mb-6 size-5 text-[hsl(var(--primary))]" />
+
+            <h3 className="font-semibold">
+              Sharing with edges
+            </h3>
+
+            <p className="mt-2 text-sm leading-6 text-[hsl(var(--muted-foreground))]">
+              Create links that expire, track access, and leave no ambiguity.
+            </p>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  );
+}
 
 function AuthPage({ register = false }: { register?: boolean }) {
   const [, navigate] = useLocation();
