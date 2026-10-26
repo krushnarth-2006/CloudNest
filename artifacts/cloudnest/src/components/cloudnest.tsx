@@ -242,7 +242,7 @@ useEffect(() => {
     cancelled = true;
   };
 }, []);
- 
+
 
   const current = nav.find((item) => location === item.href || (item.href !== "/dashboard" && location.startsWith(item.href)));
   const extraLabels: Record<string, string> = { "/settings": "Settings", "/profile": "Profile" };
@@ -419,7 +419,7 @@ useEffect(() => {
 </aside>
     {mobileOpen && <button className="fixed inset-0 z-20 bg-[hsl(var(--foreground)/.28)] md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-close-navigation" />}
 <div className="min-w-0 flex-1 md:ml-[244px]">
-       
+
     <header className="sticky top-0 z-10 flex h-[70px] items-center justify-between border-b border-[hsl(var(--border)/.8)] bg-[hsl(var(--background)/.84)] px-5 backdrop-blur-xl md:px-9">
 
   {/* LEFT */}
@@ -447,7 +447,7 @@ useEffect(() => {
   <div className="flex items-center gap-2">
 
     {/* HELP */}
-  
+
 {/* HELP */}
 <div className="relative">
   <button
@@ -1432,7 +1432,7 @@ function ProvidersPage() {
       }
     );
   };
-       
+
 
   return <PageFrame><PageHeader eyebrow="Connections" title="Your cloud perimeter." description="Connect providers once. CloudNest keeps the index unified and your credentials with the provider." action={<div className="flex items-center gap-2 rounded-lg bg-[hsl(var(--primary)/.08)] px-3 py-2 text-xs font-medium text-[hsl(var(--primary))]"><ShieldCheck className="size-4" />Credentials stay with providers</div>} />{notice && <div className="mb-5 flex items-center justify-between rounded-lg bg-[hsl(var(--primary)/.08)] px-4 py-3 text-xs text-[hsl(var(--primary))]" data-testid="status-provider-message"><span className="flex items-center gap-2"><Check className="size-4" />{notice}</span><button onClick={() => setNotice("")} data-testid="button-dismiss-provider-message"><X className="size-4" /></button></div>}{q.isLoading ? <LoadingState rows={3} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : <div className="grid gap-4 lg:grid-cols-3">{providers?.map(p => <ProviderCard key={p.id} provider={p} onToggle={() => toggle(p)} onSync={() => syncProvider(p)} busy={connect.isPending || disconnect.isPending} syncing={syncingId === p.id} />)}</div>}{!q.isLoading && !providers?.length && <EmptyState icon={Network} title="No providers registered" text="The API has not returned any supported cloud providers yet." />}</PageFrame>;
 }
@@ -1442,7 +1442,94 @@ function AnalyticsPage() { const q = useGetAnalytics({ query: { queryKey: getGet
 function MetricPanel({ title, metrics = [], colors, unit = "bytes" }: { title: string; metrics?: Metric[]; colors: string[]; unit?: "bytes" | "count" }) { const max = Math.max(...metrics.map(m => m.value), 1); const fmt = (v: number) => unit === "bytes" ? formatBytes(v) : `${v} file${v === 1 ? "" : "s"}`; return <section className="cn-card rounded-xl p-5"><h2 className="text-sm font-semibold">{title}</h2><div className="mt-6 space-y-4">{metrics.length ? metrics.map((m, i) => <div key={m.label}><div className="mb-1.5 flex justify-between text-xs"><span>{m.label}</span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{fmt(m.value)}</span></div><div className="cn-progress h-2 rounded-full"><span style={{ width: `${m.value / max * 100}%`, background: colors[i % colors.length] }} /></div></div>) : <div className="py-8 text-center text-xs text-[hsl(var(--muted-foreground))]">No metrics returned</div>}</div></section>; }
 function LargestFiles({ files = [] }: { files?: CloudFile[] }) { return <section className="cn-card rounded-xl p-5"><h2 className="text-sm font-semibold">Largest files</h2><div className="mt-4 space-y-1">{files.slice(0, 5).map(f => <Link key={f.id} href={`/files/${f.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-[hsl(var(--muted))]" data-testid={`link-largest-file-${f.id}`}><span className="grid size-8 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><FileText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-xs font-medium">{f.name}</span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{formatBytes(f.size)}</span></Link>)}</div></section>; }
 
-function ActivityPage() { const q = useListActivity({ query: { queryKey: getListActivityQueryKey() } }); const items = q.data as Activity[] | undefined; return <PageFrame><PageHeader eyebrow="Audit trail" title="Everything in motion." description="A chronological record of changes across your cloud perimeter." action={<button onClick={() => q.refetch()} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-refresh-activity"><RefreshCw className="size-4" />Refresh</button>} />{q.isLoading ? <LoadingState rows={7} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : items?.length ? <div className="cn-card rounded-xl p-5 md:p-7"><div className="relative ml-3 border-l border-[hsl(var(--border))]">{items.map(item => <div key={item.id} className="relative pb-7 pl-7 last:pb-0"><span className="absolute -left-[7px] top-0 grid size-3 place-items-center rounded-full border-2 border-[hsl(var(--background))] bg-[hsl(var(--primary))]" /><div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between"><div><div className="text-sm font-medium">{item.description || titleCase(item.action)}</div><div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{titleCase(item.action)}{item.provider ? ` · ${item.provider}` : ""}</div></div><time className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{formatDate(item.createdAt)} · {timeAgo(item.createdAt)}</time></div></div>)}</div></div> : <EmptyState icon={ActivityIcon} title="No activity yet" text="Actions from your connected clouds will land here." />}</PageFrame>; }
+
+function ActivityPage() {
+  const q = useListActivity({
+    query: { queryKey: getListActivityQueryKey() },
+  });
+
+  const items = q.data as Activity[] | undefined;
+const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+
+  const handleRefresh = async () => {
+    try {
+      await q.refetch();
+      setLastRefreshed(new Date());
+    } catch (error) {
+      console.error("Failed to refresh activity:", error);
+    }
+  };
+
+  return (
+    <PageFrame>
+      <PageHeader
+        eyebrow="Audit trail"
+        title="Everything in motion."
+        description="A chronological record of changes across your cloud perimeter."
+        action={
+          <div className="flex items-center gap-3">
+            {lastRefreshed && (
+              <span className="text-xs text-[hsl(var(--muted-foreground))]">
+                Updated {lastRefreshed.toLocaleTimeString()}
+              </span>
+            )}
+            <button
+              onClick={handleRefresh}
+              disabled={q.isFetching}
+              className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:cursor-not-allowed disabled:opacity-60"
+              data-testid="button-refresh-activity"
+            >
+              <RefreshCw
+                className={`size-4 ${q.isFetching ? "animate-spin" : ""}`}
+              />
+              {q.isFetching ? "Refreshing..." : "Refresh"}
+            </button>
+          </div>
+        }
+      />
+
+      {q.isLoading ? (
+        <LoadingState rows={7} />
+      ) : q.isError ? (
+        <ErrorState retry={handleRefresh} />
+      ) : items?.length ? (
+        <div className="cn-card rounded-xl p-5 md:p-7">
+          <div className="relative ml-3 border-l border-[hsl(var(--border))]">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="relative pb-7 pl-7 last:pb-0"
+              >
+                <span className="absolute -left-[7px] top-0 grid size-3 place-items-center rounded-full border-2 border-[hsl(var(--background))] bg-[hsl(var(--primary))]" />
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-sm font-medium">
+                      {item.description || titleCase(item.action)}
+                    </div>
+                    <div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">
+                      {titleCase(item.action)}
+                      {item.provider ? ` · ${item.provider}` : ""}
+                    </div>
+                  </div>
+                  <time className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">
+                    {formatDate(item.createdAt)} · {timeAgo(item.createdAt)}
+                  </time>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <EmptyState
+          icon={ActivityIcon}
+          title="No activity yet"
+          text="Actions from your connected clouds will land here."
+        />
+      )}
+    </PageFrame>
+  );
+}
+
 
 function DuplicatesPage() { const q = useListDuplicates({ query: { queryKey: getListDuplicatesQueryKey() } }); const groups = q.data as DuplicateGroup[] | undefined; return <PageFrame><PageHeader eyebrow="Storage hygiene" title="Duplicate radar." description="Review repeated files before they quietly consume another gigabyte." action={<div className="flex items-center gap-2 rounded-lg bg-[hsl(var(--accent)/.15)] px-3 py-2 text-xs font-semibold text-[hsl(31 70% 35%)]"><Sparkles className="size-4" />Safe review mode</div>} />{q.isLoading ? <LoadingState rows={4} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : groups?.length ? <div className="space-y-4">{groups.map(g => <DuplicateCard key={g.hash} group={g} />)}</div> : <EmptyState icon={Copy} title="No duplicates detected" text="Your connected workspace is remarkably tidy. We'll keep watching." />}</PageFrame>; }
 function DuplicateCard({ group }: { group: DuplicateGroup }) { const [open, setOpen] = useState(false); return <article className="cn-card rounded-xl p-5"><div className="flex flex-col gap-4 sm:flex-row sm:items-center"><span className="grid size-10 shrink-0 place-items-center rounded-xl bg-[hsl(var(--accent)/.16)] text-[hsl(31 70% 35%)]"><Copy className="size-[18px]" /></span><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{group.files?.[0]?.name || "Duplicate group"}</div><div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{group.files?.length || 0} copies · {formatBytes(group.totalSize)} total · hash <span className="cn-mono">{group.hash.slice(0, 10)}…</span></div></div><button onClick={() => setOpen(!open)} className="rounded-lg border border-[hsl(var(--border))] px-3 py-2 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid={`button-review-duplicate-${group.hash}`}>{open ? "Hide copies" : "Review copies"} <ChevronRight className={`ml-1 inline size-3.5 transition-transform ${open ? "rotate-90" : ""}`} /></button></div>{open && <div className="mt-5 divide-y divide-[hsl(var(--border))] rounded-lg border border-[hsl(var(--border))]">{group.files?.map(f => <div className="flex items-center gap-3 px-3 py-3" key={f.id}><FileText className="size-4 text-[hsl(var(--primary))]" /><div className="min-w-0 flex-1"><div className="truncate text-xs font-medium">{f.path || f.name}</div><div className="text-[10px] text-[hsl(var(--muted-foreground))]">{f.provider} · {formatDate(f.modifiedAt)}</div></div><Link href={`/files/${f.id}`} className="text-xs font-semibold text-[hsl(var(--primary))]" data-testid={`link-duplicate-file-${f.id}`}>Open</Link></div>)}</div>}</article>; }
@@ -1870,7 +1957,7 @@ function SettingsPage() {
 
       </div>
 
-      
+
 
   <div className="mt-6 rounded-xl border border-[hsl(var(--accent)/.3)] bg-[hsl(var(--accent)/.08)] p-5">
   <div className="flex items-center gap-3">
@@ -1988,10 +2075,10 @@ function SettingsPage() {
     </div>
   )}
 </div>
-      
+
     </PageFrame>
   );
-}; 
+};
 
 function SettingRow({ icon: Icon, title, text, control }: { icon: typeof Bell; title: string; text: string; control: ReactNode }) { return <div className="flex items-center gap-4 px-5 py-5"><span className="grid size-9 shrink-0 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon className="size-4" /></span><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{title}</div><div className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">{text}</div></div>{control}</div>; }
 
@@ -2324,9 +2411,26 @@ function SharedFilePage({ token }: { token: string }) {
         {info.permission === "WRITE" && <div className="rounded-lg border border-[hsl(var(--border))] p-4">
           <div className="text-xs font-semibold">Replace this file</div>
           <p className="mt-1 text-[11px] leading-5 text-[hsl(var(--muted-foreground))]">This link has write access. Uploading a new file here replaces the original on {info.fileName ? "the owner's cloud provider" : "the provider"} — the previous version is not kept.</p>
-          <input type="file" onChange={e => setReplaceFile(e.target.files?.[0] ?? null)} className="mt-3 w-full text-xs" data-testid="input-share-replace-file" />
-          <button onClick={uploadReplacement} disabled={uploading || !replaceFile} className="cn-btn mt-3 w-full rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid="button-share-upload">{uploading ? "Uploading…" : "Upload replacement"}</button>
-          {uploadDone && <p className="mt-3 text-xs text-[hsl(159_46%_34%)]" data-testid="text-share-upload-done">File replaced successfully.</p>}
+<input
+  type="file"
+  onChange={(e) => {
+    const selectedFile = e.currentTarget.files?.[0] ?? null;
+    setReplaceFile(selectedFile);
+    setActionError("");
+    setUploadDone(false);
+  }}
+  className="mt-3 w-full text-xs"
+  data-testid="input-share-replace-file"
+/>
+<button
+  type="button"
+  onClick={uploadReplacement}
+  disabled={uploading || !replaceFile}
+  className="cn-btn mt-3 w-full rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50"
+  data-testid="button-share-upload"
+>
+  {uploading ? "Uploading..." : "Upload replacement"}
+</button>          {uploadDone && <p className="mt-3 text-xs text-[hsl(159_46%_34%)]" data-testid="text-share-upload-done">File replaced successfully.</p>}
         </div>}
         {actionError && <p className="rounded-lg bg-[hsl(var(--destructive)/.1)] px-3 py-2 text-xs text-[hsl(var(--destructive))]" data-testid="text-share-action-error">{actionError}</p>}
       </div>}

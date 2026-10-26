@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { Types } from "mongoose";
 import { randomBytes, createHash } from "node:crypto";
 import bcrypt from "bcryptjs";
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
@@ -528,58 +529,55 @@ const account = await ConnectedAccount.findOneAndUpdate(
   return res.redirect(`${process.env.FRONTEND_URL ?? "/"}/providers?connected=${String(req.params.provider)}`);
 });
 
+
+
 router.delete("/providers/:provider/disconnect", ...secure, async (req: AuthRequest, res) => {
   const provider = String(req.params.provider);
   const userId = req.userId!;
 
-  const authorized = await getAuthorizedProvider(userId, provider);
+  // Attempt remote disconnection, but continue local cleanup if OAuth has expired.
+  try {
+    const authorized = await getAuthorizedProvider(userId, provider);
 
-  if (authorized) {
-    try {
+    if (authorized) {
       await authorized.provider.disconnect(authorized.creds);
-    } catch {
-      // best effort
     }
+  } catch (error) {
+    console.error(
+      `[Provider Disconnect] Remote disconnect failed for ${provider}; continuing with local cleanup.`,
+      error,
+    );
   }
 
-  // Remove the connected account
+  // Remove the local provider connection.
   await ConnectedAccount.deleteOne({
     userId,
     provider,
   });
 
-  // IMPORTANT:
-  // Remove locally indexed files belonging to this provider.
-  // This prevents storage/files from an old Google/OneDrive/Dropbox
-  // account from appearing after a different account is connected.
+  // Remove indexed metadata, not the actual cloud files.
   await FileModel.deleteMany({
     userId,
     provider,
   });
 
-// Remove locally indexed file metadata for this provider as well.
-// This does NOT delete the actual files from Google Drive,
-// OneDrive, or Dropbox.
-await FileModel.deleteMany({
-  userId,
-  provider,
-});
-
-// Remove locally stored folders for this provider as well.
-await Folder.deleteMany({
-  userId,
-  provider,
-});
+  await Folder.deleteMany({
+    userId,
+    provider,
+  });
 
   await activity(
     userId,
     "Provider disconnected",
     `${provider} disconnected`,
-    provider
+    provider,
   );
 
   return res.status(204).send();
 });
+
+
+  // Remove the local provider connection even if its OAuth token is invalid.
 
 // Real cloud sync: imports/indexes files that already exist on the provider (uploaded
 // outside CloudNest, or from before this account was connected) into the Mongo file index -
@@ -644,7 +642,48 @@ router.get("/allocation/recommend/:id", ...secure, async (req: AuthRequest, res)
 // -----------------------------------------------------------------------
 // Sharing
 // -----------------------------------------------------------------------
-router.get("/shares", ...secure, async (req: AuthRequest, res) => res.json(await ShareLink.aggregate([{ $match: { ownerId: req.userId } }, { $lookup: { from: "files", localField: "fileId", foreignField: "_id", as: "file" } }, { $unwind: "$file" }, { $project: { id: "$_id", fileId: 1, fileName: "$file.name", permission: 1, expiresAt: 1, token: 1, accessCount: 1, createdAt: 1 } }])));
+
+
+router.get("/shares", ...secure, async (req: AuthRequest, res) => {
+  const ownerId = req.userId;
+
+  if (!ownerId || !Types.ObjectId.isValid(ownerId)) {
+    return res.status(401).json({ error: "Invalid authenticated user ID" });
+  }
+
+  const shares = await ShareLink.aggregate([
+    {
+      $match: {
+        ownerId: new Types.ObjectId(ownerId),
+        revokedAt: { $exists: false },
+      },
+    },
+    {
+      $lookup: {
+        from: "files",
+        localField: "fileId",
+        foreignField: "_id",
+        as: "file",
+      },
+    },
+    { $unwind: "$file" },
+    {
+      $project: {
+        id: "$_id",
+        fileId: 1,
+        fileName: "$file.name",
+        permission: 1,
+        expiresAt: 1,
+        token: 1,
+        accessCount: 1,
+        createdAt: 1,
+      },
+    },
+  ]);
+
+  return res.json(shares);
+});
+
 
 router.post("/shares", ...secure, async (req: AuthRequest, res) => {
   const file = await FileModel.findOne({ _id: req.body.fileId, userId: req.userId });
@@ -655,7 +694,34 @@ router.post("/shares", ...secure, async (req: AuthRequest, res) => {
   return res.status(201).json({ id: share._id, fileId: file._id, fileName: file.name, permission: share.permission, expiresAt: share.expiresAt, token: share.token, accessCount: 0, createdAt: share.createdAt });
 });
 
-router.delete("/shares/:id", ...secure, async (req: AuthRequest, res) => { const share = await ShareLink.findOneAndUpdate({ _id: req.params.id, ownerId: req.userId }, { revokedAt: new Date() }); if (share) await activity(req.userId!, "Share revoked", "A sharing link was revoked"); return res.status(204).send(); });
+
+router.delete("/shares/:id", ...secure, async (req: AuthRequest, res) => {
+  const share = await ShareLink.findOneAndUpdate(
+    {
+      _id: req.params.id,
+      ownerId: req.userId,
+      revokedAt: { $exists: false },
+    },
+    {
+      $set: { revokedAt: new Date() },
+    },
+    { new: true },
+  );
+
+  if (!share) {
+    return res.status(404).json({
+      error: "Share link not found or already revoked",
+    });
+  }
+
+  await activity(
+    req.userId!,
+    "Share revoked",
+    "A sharing link was revoked",
+  );
+
+  return res.status(204).send();
+});
 
 router.get("/share/:token", async (req, res) => {
   if (!isMongoConnected()) return res.status(503).json({ error: "Database is not connected" });

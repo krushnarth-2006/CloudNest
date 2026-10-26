@@ -47,7 +47,7 @@ function Router() {
     // survives a page crash.
     <RoutedErrorBoundary>
       <Switch>
-       <Route path="/" component={() => <AuthPage />} />
+       <Route path="/" component={HomePage} />
        <Route path="/home" component={HomePage} />
         <Route path="/login" component={() => <AuthPage />} />
         <Route path="/register" component={() => <AuthPage register />} />
