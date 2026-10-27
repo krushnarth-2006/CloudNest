@@ -160,6 +160,29 @@ paths:
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
+  /files/{id}/preview:
+    get:
+      operationId: previewFile
+      tags: [files]
+      summary: Load supported file contents for in-app preview
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Supported file contents with an inline disposition
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            text/plain:
+              schema: { type: string }
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema: { type: string, format: binary }
+        "415":
+          description: The file format is not supported for in-app preview
   /files/{id}/rename:
     patch:
       operationId: renameFile

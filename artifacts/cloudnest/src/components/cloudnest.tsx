@@ -7,7 +7,7 @@ import {
   CircleHelp, Cloud, Copy, FileArchive, FileImage, FilePlus2, FileSpreadsheet,
   FileText, Folder, FolderPlus, HardDrive, LayoutDashboard, LayoutGrid, Link2, List, ListFilter, LockKeyhole,
   LogOut, Menu, MoreHorizontal, Network, PanelLeftClose, Pencil, Plus, RefreshCw,
-  Search, Settings, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Keyboard, Trash2,
+  Search, Settings, Share2, ShieldCheck, SlidersHorizontal, Sparkles, Trash2,
   UploadCloud, UserRound, X, Zap
 } from "lucide-react";
 import {
@@ -23,12 +23,13 @@ import {
   useSyncProvider, useCopyFile,
 } from "@workspace/api-client-react";
 import type { Activity, Analytics, Dashboard, DuplicateGroup, File as CloudFile, Metric, Provider, Share, UserProfile, AllocationRecommendation, SyncSummary } from "@workspace/api-client-react";
+import { FileComposition } from "./file-composition";
+import { getMimeDisplayName } from "../lib/mimeDisplay";
 
 const nav = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "All files", href: "/files", icon: Folder },
   { label: "Providers", href: "/providers", icon: Network },
-  { label: "Search", href: "/search", icon: Search },
   { label: "Categories", href: "/categories", icon: ListFilter },
   { label: "Duplicates", href: "/duplicates", icon: Copy },
   { label: "Share links", href: "/shares", icon: Link2 },
@@ -626,26 +627,6 @@ useEffect(() => {
               </p>
             </div>
 
-            <div className="rounded-lg p-3 hover:bg-[hsl(var(--muted))]">
-              <div className="flex items-center gap-2">
-                <Keyboard className="size-3.5 text-[hsl(var(--primary))]" />
-
-                <p className="text-xs font-semibold">
-                  Keyboard shortcut
-                </p>
-              </div>
-
-              <div className="mt-2 flex items-center justify-between pl-5">
-                <span className="text-[10px] text-[hsl(var(--muted-foreground))]">
-                  Open search
-                </span>
-
-                <kbd className="rounded border border-[hsl(var(--border))] bg-[hsl(var(--muted))] px-1.5 py-0.5 font-mono text-[9px]">
-                  ⌘ K
-                </kbd>
-              </div>
-            </div>
-
           </div>
         </div>
 
@@ -859,9 +840,13 @@ function Kpi({ label, value, detail, icon: Icon, accent = "primary" }: { label: 
 function FileRow({
   file,
   onDelete,
+  onCategoryChange,
+  categoryChangeDisabled = false,
 }: {
   file: CloudFile;
   onDelete?: (id: string) => void;
+  onCategoryChange?: (id: string, category: string) => void;
+  categoryChangeDisabled?: boolean;
 }) {
   const Icon = fileIcon(file.mimeType);
 
@@ -958,6 +943,20 @@ function FileRow({
         >
           DUPLICATE
         </span>
+      )}
+
+      {onCategoryChange && (
+        <select
+          aria-label={`Change category for ${file.name}`}
+          value={file.category}
+          disabled={categoryChangeDisabled}
+          onChange={(event) => onCategoryChange(file.id, event.target.value)}
+          onClick={(event) => event.stopPropagation()}
+          className="h-9 max-w-32 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-2 text-[11px] disabled:opacity-50"
+          data-testid={`select-file-category-${file.id}`}
+        >
+          {CATEGORY_OPTIONS.map((category) => <option key={category} value={category}>{category}</option>)}
+        </select>
       )}
 
       <button
@@ -1103,7 +1102,7 @@ return (
           </div>
 
           <div className="mt-6 grid gap-6 xl:grid-cols-[1fr_1.35fr]">
-            <TypeDistribution metrics={dashboard.typeDistribution} />
+            <FileComposition metrics={dashboard.typeDistribution} />
             <ActivityFeed items={dashboard.recentActivity} />
           </div>
         </>
@@ -1118,7 +1117,6 @@ return (
 }
 
 function ProviderSnapshot({ metrics = [] }: { metrics?: Metric[] }) { const total = metrics.reduce((a, m) => a + m.value, 0); return <section className="cn-card rounded-xl p-5"><div className="mb-5 flex items-start justify-between"><div><h2 className="text-sm font-semibold">Provider health</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Usage by connected cloud</p></div><Link href="/providers" className="rounded-md p-1.5 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--muted))]" data-testid="link-provider-settings"><SlidersHorizontal className="size-4" /></Link></div><div className="space-y-5">{metrics.length ? metrics.map(m => <div key={m.label}><div className="mb-2 flex justify-between text-xs"><span className="flex items-center gap-2 font-medium"><i className="size-2 rounded-full" style={{ backgroundColor: providerColor(m.label) }} />{m.label}</span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{formatBytes(m.value)}</span></div><div className="cn-progress h-1.5 rounded-full"><span style={{ width: `${total ? Math.min(100, Math.max(5, m.value / total * 100)) : 0}%`, backgroundColor: providerColor(m.label) }} /></div></div>) : <div className="py-7 text-center text-xs text-[hsl(var(--muted-foreground))]">No provider data available</div>}</div><Link href="/analytics" className="mt-7 flex items-center justify-between border-t border-[hsl(var(--border))] pt-4 text-xs font-semibold text-[hsl(var(--primary))]" data-testid="link-see-analytics">See storage analytics <ChevronRight className="size-3.5" /></Link></section>; }
-function TypeDistribution({ metrics = [] }: { metrics?: Metric[] }) { const total = metrics.reduce((a, m) => a + m.value, 0); return <section className="cn-card rounded-xl p-5"><h2 className="text-sm font-semibold">File composition</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">What your workspace holds</p><div className="mt-6 flex h-3 overflow-hidden rounded-full bg-[hsl(var(--muted))]">{metrics.slice(0, 5).map((m, i) => <span key={m.label} style={{ width: `${total ? m.value / total * 100 : 0}%`, backgroundColor: ["#2ea6b1", "#5576c5", "#e59b2f", "#7f9bb5", "#e56a59"][i] }} />)}</div><div className="mt-5 grid grid-cols-2 gap-x-4 gap-y-3">{metrics.slice(0, 6).map((m, i) => <div key={m.label} className="flex items-center justify-between text-xs"><span className="flex items-center gap-2 text-[hsl(var(--muted-foreground))]"><i className="size-2 rounded-full" style={{ backgroundColor: ["#2ea6b1", "#5576c5", "#e59b2f", "#7f9bb5", "#e56a59"][i % 5] }} />{m.label}</span><span className="cn-mono text-[10px]">{total ? Math.round(m.value / total * 100) : 0}%</span></div>)}</div></section>; }
 function ActivityFeed({ items = [] }: { items?: Activity[] }) { return <section className="cn-card rounded-xl p-5"><div className="flex items-center justify-between"><div><h2 className="text-sm font-semibold">Latest activity</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">A quiet audit trail</p></div><Link href="/activity" className="text-xs font-semibold text-[hsl(var(--primary))]" data-testid="link-view-activity">View timeline</Link></div><div className="mt-4 space-y-1">{items?.slice(0, 4).map(item => <div key={item.id} className="flex gap-3 rounded-lg px-1 py-2.5"><span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Zap className="size-3.5" /></span><div className="min-w-0 flex-1"><div className="text-xs font-medium">{item.description || titleCase(item.action)}</div><div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">{item.provider || "CloudNest"} · {timeAgo(item.createdAt)}</div></div></div>)}</div></section>; }
 
 function PageFrame({ children }: { children: ReactNode }) { return <Shell>{children}</Shell>; }
@@ -1137,8 +1135,8 @@ function broadType(mimeType?: string | null): string {
   return "Other";
 }
 
-function FilesPage({ searchMode = false, category }: { searchMode?: boolean; category?: string }) {
-  const [search, setSearch] = useState(searchMode ? "" : "");
+function FilesPage({ category }: { category?: string }) {
+  const [search, setSearch] = useState("");
   const [provider, setProvider] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadProvider, setUploadProvider] = useState("");
@@ -1241,7 +1239,7 @@ onError: (err) => {
       onError: (err) => setFolderError(err instanceof Error ? err.message : "Could not create the folder"),
     });
   };
-  return <PageFrame><PageHeader eyebrow={category ? `Category / ${titleCase(category)}` : searchMode ? "Cross-provider search" : "Unified file browser"} title={category ? titleCase(category) : searchMode ? "Find anything, anywhere." : "All files"} description={category ? "A focused view across every connected cloud." : searchMode ? "Search names, paths, and providers from one calm command center." : "One index for every cloud you have connected."} action={!searchMode && <div className="flex gap-2"><button onClick={() => setFolderOpen(true)} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-new-folder"><FolderPlus className="size-4" />New folder</button><button onClick={() => setUploadOpen(true)} className="cn-btn cn-btn-primary inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-xs font-semibold text-white" data-testid="button-upload-file"><UploadCloud className="size-4" />Upload file</button></div>} />
+  return <PageFrame><PageHeader eyebrow={category ? `Category / ${titleCase(category)}` : "Unified file browser"} title={category ? titleCase(category) : "All files"} description={category ? "A focused view across every connected cloud." : "One index for every cloud you have connected."} action={<div className="flex gap-2"><button onClick={() => setFolderOpen(true)} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-new-folder"><FolderPlus className="size-4" />New folder</button><button onClick={() => setUploadOpen(true)} className="cn-btn cn-btn-primary inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-xs font-semibold text-white" data-testid="button-upload-file"><UploadCloud className="size-4" />Upload file</button></div>} />
     {folderOpen && <div className="mb-5 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-4">
       <div className="mb-3 flex items-center justify-between"><span className="text-sm font-semibold">Create a folder</span><button onClick={() => setFolderOpen(false)} data-testid="button-cancel-folder"><X className="size-4" /></button></div>
       {connectedProviders.length === 0 ? <p className="text-xs text-[hsl(var(--muted-foreground))]">Connect a cloud provider first.</p> : <>
@@ -1301,7 +1299,10 @@ function FileGridCard({ file, onDelete }: { file: CloudFile; onDelete?: (id: str
 
 function CategoriesPage() {
   const q = useListFiles(undefined, { query: { queryKey: getListFilesQueryKey() } });
+  const move = useMoveFile();
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState("all");
+  const [moveError, setMoveError] = useState("");
   const files = q.data as CloudFile[] | undefined;
   const categories = useMemo(() => {
     const map = new Map<string, CloudFile[]>();
@@ -1309,7 +1310,14 @@ function CategoriesPage() {
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length);
   }, [files]);
   const visible = selected === "all" ? files : files?.filter(file => file.category === selected);
-  return <PageFrame><PageHeader eyebrow="Organize by meaning" title="Your filing cabinet, simplified." description="CloudNest reads the shape of your workspace so you can jump straight to the kind of file you need." />{q.isLoading ? <LoadingState rows={5} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : files?.length ? <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><button onClick={() => setSelected("all")} className={`cn-card rounded-xl p-4 text-left ${selected === "all" ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/.07)]" : ""}`} data-testid="button-category-all"><div className="flex items-center justify-between"><Folder className="size-5 text-[hsl(var(--primary))]" /><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{files.length}</span></div><div className="mt-5 text-sm font-semibold">Everything</div><div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">All indexed files</div></button>{categories.map(([name, items], i) => <button key={name} onClick={() => setSelected(name)} className={`cn-card rounded-xl p-4 text-left ${selected === name ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/.07)]" : ""}`} data-testid={`button-category-${name}`}><div className="flex items-center justify-between"><span className="grid size-8 place-items-center rounded-lg" style={{ backgroundColor: ["#2ea6b118", "#5576c518", "#e59b2f18", "#e56a5918"][i % 4], color: ["#2ea6b1", "#5576c5", "#c57d12", "#d85e4d"][i % 4] }}><FileText className="size-4" /></span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{items.length}</span></div><div className="mt-4 truncate text-sm font-semibold">{titleCase(name)}</div><div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">{formatBytes(items.reduce((sum, file) => sum + file.size, 0))}</div></button>)}</div><div className="mt-6"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">{selected === "all" ? "All categories" : titleCase(selected)}</h2><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{visible?.length || 0} FILES</span></div><div className="cn-card overflow-hidden rounded-xl">{visible?.map(file => <FileRow key={file.id} file={file} />)}</div></div></> : <EmptyState icon={Folder} title="Categories are waiting" text="Connect a provider and index a few files to see them sorted here." />}</PageFrame>;
+  const changeCategory = (id: string, category: string) => {
+    setMoveError("");
+    move.mutate({ id, data: { category } }, {
+      onSuccess: () => queryClient.invalidateQueries({ queryKey: getListFilesQueryKey() }),
+      onError: (error) => setMoveError(error instanceof Error ? error.message : "Could not change the file category."),
+    });
+  };
+  return <PageFrame><PageHeader eyebrow="Organize by meaning" title="Your filing cabinet, simplified." description="Change a file's category to update its index and move it into the matching folder on its cloud provider." />{q.isLoading ? <LoadingState rows={5} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : files?.length ? <><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><button onClick={() => setSelected("all")} className={`cn-card rounded-xl p-4 text-left ${selected === "all" ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/.07)]" : ""}`} data-testid="button-category-all"><div className="flex items-center justify-between"><Folder className="size-5 text-[hsl(var(--primary))]" /><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{files.length}</span></div><div className="mt-5 text-sm font-semibold">Everything</div><div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">All indexed files</div></button>{categories.map(([name, items], i) => <button key={name} onClick={() => setSelected(name)} className={`cn-card rounded-xl p-4 text-left ${selected === name ? "border-[hsl(var(--primary))] bg-[hsl(var(--primary)/.07)]" : ""}`} data-testid={`button-category-${name}`}><div className="flex items-center justify-between"><span className="grid size-8 place-items-center rounded-lg" style={{ backgroundColor: ["#2ea6b118", "#5576c518", "#e59b2f18", "#e56a5918"][i % 4], color: ["#2ea6b1", "#5576c5", "#c57d12", "#d85e4d"][i % 4] }}><FileText className="size-4" /></span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{items.length}</span></div><div className="mt-4 truncate text-sm font-semibold">{titleCase(name)}</div><div className="mt-1 text-[11px] text-[hsl(var(--muted-foreground))]">{formatBytes(items.reduce((sum, file) => sum + file.size, 0))}</div></button>)}</div><div className="mt-6"><div className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">{selected === "all" ? "All categories" : titleCase(selected)}</h2><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{visible?.length || 0} FILES</span></div>{moveError && <p role="alert" className="mb-3 rounded-lg bg-[hsl(var(--destructive)/.08)] px-3 py-2 text-xs text-[hsl(var(--destructive))]">{moveError}</p>}<div className="cn-card overflow-hidden rounded-xl">{visible?.map(file => <FileRow key={file.id} file={file} onCategoryChange={changeCategory} categoryChangeDisabled={move.isPending} />)}</div></div></> : <EmptyState icon={Folder} title="Categories are waiting" text="Connect a provider and index a few files to see them sorted here." />}</PageFrame>;
 }
 
 function ProvidersPage() {
@@ -1438,7 +1446,7 @@ function ProvidersPage() {
 }
 function ProviderCard({ provider: p, onToggle, onSync, busy, syncing }: { provider: Provider; onToggle: () => void; onSync: () => void; busy: boolean; syncing: boolean }) { const pct = p.totalBytes ? Math.round(p.usedBytes / p.totalBytes * 100) : 0; return <article className="cn-card rounded-xl p-5"><div className="flex items-start justify-between"><div className="grid size-11 place-items-center rounded-xl text-lg font-bold" style={{ backgroundColor: `${providerColor(p.name)}18`, color: providerColor(p.name) }}>{p.name === "Google Drive" ? "G" : p.name === "OneDrive" ? "O" : "D"}</div><span className={`flex items-center gap-1.5 rounded-full px-2 py-1 cn-mono text-[9px] ${p.connected ? "bg-[hsl(159 46% 42%/.12)] text-[hsl(159 46% 34%)]" : "bg-[hsl(var(--muted))] text-[hsl(var(--muted-foreground))]"}`}><i className={`size-1.5 rounded-full ${p.connected ? "bg-[hsl(159 46% 42%)]" : "bg-[hsl(var(--muted-foreground))]"}`} />{p.connected ? "CONNECTED" : "OFFLINE"}</span></div><h2 className="mt-5 font-semibold">{p.name}</h2><p className="mt-1 min-h-10 text-xs leading-5 text-[hsl(var(--muted-foreground))]">{p.statusMessage || (p.configured ? "Ready to sync your file index." : "Configuration required by the provider.")}</p><div className="mt-5"><div className="mb-2 flex justify-between text-[11px]"><span className="text-[hsl(var(--muted-foreground))]">Storage used</span><span className="cn-mono">{formatBytes(p.usedBytes)} / {formatBytes(p.totalBytes)}</span></div><div className="cn-progress h-1.5 rounded-full"><span style={{ width: `${pct}%`, backgroundColor: providerColor(p.name) }} /></div></div><div className="mt-6 flex gap-2">{p.connected && <button disabled={syncing} onClick={onSync} className="cn-btn inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid={`button-sync-${p.id}`}><RefreshCw className={`size-3.5 ${syncing ? "animate-spin" : ""}`} />{syncing ? "Syncing…" : "Sync files"}</button>}<button disabled={busy} onClick={onToggle} className={`cn-btn rounded-lg border px-3 py-2.5 text-xs font-semibold ${p.connected ? "flex-1 border-[hsl(var(--border))] bg-[hsl(var(--card))] hover:bg-[hsl(var(--muted))]" : "w-full border-transparent bg-[hsl(var(--primary))] text-white hover:bg-[hsl(var(--primary)/.88)]"}`} data-testid={`button-${p.connected ? "disconnect" : "connect"}-${p.id}`}>{busy ? "Updating…" : p.connected ? "Disconnect" : p.configured ? "Connect provider" : "Check configuration"}</button></div></article>; }
 
-function AnalyticsPage() { const q = useGetAnalytics({ query: { queryKey: getGetAnalyticsQueryKey() } }); const a = q.data as Analytics | undefined; return <PageFrame><PageHeader eyebrow="Storage intelligence" title="Make space with certainty." description="A measured view of what is taking up room across your connected clouds." action={<Link href="/duplicates" className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="link-review-duplicates"><Copy className="size-4" />Review duplicates</Link>} />{q.isLoading ? <LoadingState rows={5} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : a ? <><div className="grid gap-4 sm:grid-cols-2"><Kpi label="Indexed storage" value={formatBytes(a.totalStorage)} detail="Across connected providers" icon={HardDrive} accent="accent" /><Kpi label="Duplicate groups" value={String(a.duplicateCount)} detail="Review before removing" icon={Copy} accent="destructive" /></div><div className="mt-6 grid gap-6 lg:grid-cols-2"><MetricPanel title="Storage by provider" metrics={a.providerStorage} colors={["#2ea6b1", "#5576c5", "#e59b2f"]} unit="bytes" /><MetricPanel title="File types" metrics={a.fileTypes} colors={["#2ea6b1", "#5576c5", "#e59b2f", "#e56a59", "#7f9bb5"]} unit="count" /></div><div className="mt-6 grid gap-6 lg:grid-cols-[.9fr_1.1fr]"><MetricPanel title="Categories" metrics={a.categories} colors={["#2ea6b1", "#5576c5", "#e59b2f", "#e56a59", "#7f9bb5"]} unit="count" /><LargestFiles files={a.largestFiles} /></div></> : <EmptyState icon={BarChart3} title="Analytics will appear here" text="Connect a provider and index your files to see storage intelligence." />}</PageFrame>; }
+function AnalyticsPage() { const q = useGetAnalytics({ query: { queryKey: getGetAnalyticsQueryKey() } }); const a = q.data as Analytics | undefined; return <PageFrame><PageHeader eyebrow="Storage intelligence" title="Make space with certainty." description="A measured view of what is taking up room across your connected clouds." action={<Link href="/duplicates" className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="link-review-duplicates"><Copy className="size-4" />Review duplicates</Link>} />{q.isLoading ? <LoadingState rows={5} /> : q.isError ? <ErrorState retry={() => q.refetch()} /> : a ? <><div className="grid gap-4 sm:grid-cols-2"><Kpi label="Indexed storage" value={formatBytes(a.totalStorage)} detail="Across connected providers" icon={HardDrive} accent="accent" /><Kpi label="Duplicate groups" value={String(a.duplicateCount)} detail="Review before removing" icon={Copy} accent="destructive" /></div><div className="mt-6 grid gap-6 lg:grid-cols-2"><MetricPanel title="Storage by provider" metrics={a.providerStorage} colors={["#2ea6b1", "#5576c5", "#e59b2f"]} unit="bytes" /><FileComposition metrics={a.fileTypes} /></div><div className="mt-6 grid gap-6 lg:grid-cols-[.9fr_1.1fr]"><MetricPanel title="Categories" metrics={a.categories} colors={["#2ea6b1", "#5576c5", "#e59b2f", "#e56a59", "#7f9bb5"]} unit="count" /><LargestFiles files={a.largestFiles} /></div></> : <EmptyState icon={BarChart3} title="Analytics will appear here" text="Connect a provider and index your files to see storage intelligence." />}</PageFrame>; }
 function MetricPanel({ title, metrics = [], colors, unit = "bytes" }: { title: string; metrics?: Metric[]; colors: string[]; unit?: "bytes" | "count" }) { const max = Math.max(...metrics.map(m => m.value), 1); const fmt = (v: number) => unit === "bytes" ? formatBytes(v) : `${v} file${v === 1 ? "" : "s"}`; return <section className="cn-card rounded-xl p-5"><h2 className="text-sm font-semibold">{title}</h2><div className="mt-6 space-y-4">{metrics.length ? metrics.map((m, i) => <div key={m.label}><div className="mb-1.5 flex justify-between text-xs"><span>{m.label}</span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{fmt(m.value)}</span></div><div className="cn-progress h-2 rounded-full"><span style={{ width: `${m.value / max * 100}%`, background: colors[i % colors.length] }} /></div></div>) : <div className="py-8 text-center text-xs text-[hsl(var(--muted-foreground))]">No metrics returned</div>}</div></section>; }
 function LargestFiles({ files = [] }: { files?: CloudFile[] }) { return <section className="cn-card rounded-xl p-5"><h2 className="text-sm font-semibold">Largest files</h2><div className="mt-4 space-y-1">{files.slice(0, 5).map(f => <Link key={f.id} href={`/files/${f.id}`} className="flex items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-[hsl(var(--muted))]" data-testid={`link-largest-file-${f.id}`}><span className="grid size-8 place-items-center rounded-lg bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><FileText className="size-4" /></span><span className="min-w-0 flex-1 truncate text-xs font-medium">{f.name}</span><span className="cn-mono text-[10px] text-[hsl(var(--muted-foreground))]">{formatBytes(f.size)}</span></Link>)}</div></section>; }
 
@@ -1561,8 +1569,11 @@ function StorageAllocationPage() {
       {fileId && recQ.isError && <div className="mt-5"><ErrorState retry={() => recQ.refetch()} /></div>}
       {fileId && rec && <div className="mt-5 rounded-xl bg-[hsl(var(--muted)/.55)] p-5">
         <div className="flex flex-wrap items-center gap-2 text-sm font-semibold"><span>{rec.currentProvider}</span><ArrowRightLeft className="size-4 text-[hsl(var(--muted-foreground))]" /><span className={rec.shouldMigrate ? "text-[hsl(var(--primary))]" : ""}>{rec.recommendedProvider}</span>{rec.shouldMigrate ? <span className="ml-1 rounded-full bg-[hsl(var(--primary)/.12)] px-2 py-0.5 cn-mono text-[9px] text-[hsl(var(--primary))]">MOVE RECOMMENDED</span> : <span className="ml-1 rounded-full bg-[hsl(159_46%_42%/.12)] px-2 py-0.5 cn-mono text-[9px] text-[hsl(159_46%_34%)]">ALREADY OPTIMAL</span>}</div>
-        <p className="mt-3 text-xs leading-5 text-[hsl(var(--muted-foreground))]" data-testid="text-allocation-reason">{rec.reason}</p>
-        {rec.estimatedFreeAfter != null && <p className="mt-2 text-[11px] text-[hsl(var(--muted-foreground))]">Estimated free space remaining after this file: {formatBytes(Math.max(0, rec.estimatedFreeAfter))}</p>}
+        <div className="mt-4 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card)/.75)] p-4">
+          <h3 className="text-xs font-semibold">Why this location?</h3>
+          <p className="mt-2 text-xs leading-5 text-[hsl(var(--muted-foreground))]" data-testid="text-allocation-reason">{rec.reason}</p>
+          {rec.estimatedFreeAfter != null && <p className="mt-3 border-t border-[hsl(var(--border))] pt-3 text-[11px] font-medium text-[hsl(var(--foreground))]">Estimated space left on {rec.recommendedProvider} after storing this file: {formatBytes(Math.max(0, rec.estimatedFreeAfter))}</p>}
+        </div>
         {rec.shouldMigrate && <button onClick={confirmMigration} disabled={migrate.isPending} className="cn-btn mt-4 inline-flex items-center gap-2 rounded-lg bg-[hsl(var(--primary))] px-4 py-2.5 text-xs font-semibold text-white disabled:opacity-40" data-testid="button-confirm-allocation-migration"><ArrowRightLeft className="size-4" />{migrate.isPending ? "Moving…" : `Copy to ${rec.recommendedProvider}`}</button>}
         {migrated && <p className="mt-3 text-xs text-[hsl(159_46%_34%)]" data-testid="text-allocation-migrated">Done — a copy now lives on {rec.recommendedProvider}. The original on {rec.currentProvider} was left in place.</p>}
       </div>}
@@ -1594,6 +1605,8 @@ function FileDetailPage({ id }: { id: string }) {
   const [actionError, setActionError] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string | null>(null);
+  const [previewMimeType, setPreviewMimeType] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState("");
   if (q.isLoading) return <PageFrame><LoadingState rows={6} /></PageFrame>;
@@ -1622,38 +1635,51 @@ function FileDetailPage({ id }: { id: string }) {
   const otherProviders = providersList?.filter(p => p.connected && p.id !== file.provider) ?? [];
 const mimeType = file.mimeType?.toLowerCase() ?? "";
 
-const isImage = mimeType.startsWith("image/");
-const isVideo = mimeType.startsWith("video/");
-const isPdf = mimeType === "application/pdf";
-
-const isExcel =
-  mimeType.includes("spreadsheet") ||
-  mimeType.includes("excel");
-
-const isPreviewable = isImage || isVideo || isPdf || isExcel;
 
 const loadPreview = async () => {
   if (previewUrl) {
+    if (previewUrl.startsWith("blob:")) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(null);
     setPreviewHtml(null);
+    setPreviewText(null);
+    setPreviewMimeType("");
     return;
   }
 
   setPreviewLoading(true);
   setPreviewError("");
+  let responseMimeType = "";
 
   try {
-    const response = await fetch(`/api/files/${id}/download`, {
+    const response = await fetch(`/api/files/${id}/preview`, {
       credentials: "include",
     });
 
     if (!response.ok) {
-      throw new Error("Could not load a preview from the provider.");
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || `Preview request failed (${response.status} ${response.statusText}). The API may need to be rebuilt and restarted.`);
     }
 
+    responseMimeType = response.headers.get("content-type")?.split(";")[0]?.toLowerCase() ?? "";
+    if (responseMimeType && responseMimeType !== mimeType) {
+      queryClient.invalidateQueries({ queryKey: getGetFileQueryKey(id) });
+      queryClient.invalidateQueries({ queryKey: getListFilesQueryKey() });
+    }
     const blob = await response.blob();
+    setPreviewMimeType(responseMimeType);
 
-    if (isExcel) {
+    if (responseMimeType === "text/plain" || responseMimeType === "text/csv") {
+      setPreviewText(await blob.text());
+      setPreviewHtml(null);
+      setPreviewUrl("text");
+    } else if (responseMimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      const mammoth = (await import("mammoth/mammoth.browser")).default;
+      const result = await mammoth.convertToHtml({ arrayBuffer: await blob.arrayBuffer() });
+      if (!result.value.trim()) throw new Error("This Word document has no previewable content.");
+      setPreviewHtml(result.value);
+      setPreviewText(null);
+      setPreviewUrl("word");
+    } else if (responseMimeType.includes("spreadsheet") || responseMimeType.includes("excel")) {
       const arrayBuffer = await blob.arrayBuffer();
       const workbook = XLSX.read(arrayBuffer, { type: "array" });
 
@@ -1667,14 +1693,19 @@ const loadPreview = async () => {
       const html = XLSX.utils.sheet_to_html(worksheet);
 
       setPreviewHtml(html);
+      setPreviewText(null);
       setPreviewUrl("excel");
     } else {
       setPreviewHtml(null);
+      setPreviewText(null);
       setPreviewUrl(URL.createObjectURL(blob));
     }
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Preview failed";
     setPreviewError(
-      err instanceof Error ? err.message : "Preview failed"
+      /central directory|not a zip|invalid zip/i.test(message)
+        ? `The provider returned content that is not a valid ${responseMimeType.includes("word") ? "Word (.docx)" : "Excel (.xlsx)"} file. Check the file in the provider, then sync it again or download it.`
+        : message
     );
   } finally {
     setPreviewLoading(false);
@@ -1711,31 +1742,46 @@ const downloadNow = async () => {
     );
   }
 };
+const displayedPreviewMime = previewMimeType || mimeType;
+const previewIsWord = displayedPreviewMime.includes("wordprocessingml.document");
+const previewIsExcel = displayedPreviewMime.includes("spreadsheet") || displayedPreviewMime.includes("excel");
+const previewIsVideo = displayedPreviewMime.startsWith("video/");
+const previewIsImage = displayedPreviewMime.startsWith("image/");
   return <PageFrame><div className="mb-6 flex items-center gap-2 text-xs text-[hsl(var(--muted-foreground))]"><Link href="/files" className="hover:text-[hsl(var(--primary))]" data-testid="link-back-files">All files</Link><ChevronRight className="size-3.5" /><span className="text-[hsl(var(--foreground))]">Details</span></div><div className="grid gap-6 lg:grid-cols-[1.15fr_.85fr]"><section className="cn-card rounded-xl p-6 md:p-8"><div className="flex items-start justify-between"><span className="grid size-14 place-items-center rounded-2xl bg-[hsl(var(--secondary))] text-[hsl(var(--primary))]"><Icon className="size-7" /></span><div className="flex gap-1"><button onClick={downloadNow} className="rounded-lg p-2 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--primary)/.1)] hover:text-[hsl(var(--primary))]" data-testid="button-download-file-detail" title="Download"><UploadCloud className="size-4 rotate-180" /></button><button onClick={() => { setNameDraft(file.name); setRenaming(true); }} className="rounded-lg p-2 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--primary)/.1)] hover:text-[hsl(var(--primary))]" data-testid="button-rename-file"><Pencil className="size-4" /></button><button onClick={() => { if (window.confirm(`Delete "${file.name}"? It will be removed from CloudNest and deleted from ${file.provider}.`)) del.mutate({ id }, { onSuccess: () => setLocation("/files") }); }} className="rounded-lg p-2 text-[hsl(var(--muted-foreground))] hover:bg-[hsl(var(--destructive)/.1)] hover:text-[hsl(var(--destructive))]" data-testid="button-delete-file-detail"><Trash2 className="size-4" /></button></div></div>
     {renaming
       ? <div className="mt-7 flex gap-2"><input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && submitRename()} className="h-10 flex-1 rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 text-lg font-semibold outline-none focus:border-[hsl(var(--primary))]" data-testid="input-rename-file" /><button onClick={submitRename} disabled={rename.isPending} className="cn-btn rounded-lg bg-[hsl(var(--primary))] px-4 text-xs font-semibold text-white" data-testid="button-confirm-rename">{rename.isPending ? "Saving…" : "Save"}</button><button onClick={() => setRenaming(false)} className="rounded-lg border border-[hsl(var(--border))] px-3 text-xs font-semibold" data-testid="button-cancel-rename">Cancel</button></div>
       : <h1 className="cn-display mt-7 break-words text-3xl font-semibold">{file.name}</h1>}
     <p className="mt-2 text-sm text-[hsl(var(--muted-foreground))]">{file.path || "Indexed in your unified workspace"}</p>
     {actionError && <p className="mt-3 rounded-lg bg-[hsl(var(--destructive)/.1)] px-3 py-2 text-xs text-[hsl(var(--destructive))]" data-testid="text-file-action-error">{actionError}</p>}
-    <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">{[["Provider", file.provider], ["Type", titleCase(file.category)], ["Size", formatBytes(file.size)], ["Modified", formatDate(file.modifiedAt)], ["MIME", file.mimeType], ["Status", file.isDuplicate ? "Duplicate" : "Unique"]].map(([k, v]) => <div key={k} className="rounded-lg bg-[hsl(var(--muted)/.64)] p-3"><div className="cn-mono text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{k}</div><div className="mt-1 truncate text-xs font-semibold">{v}</div></div>)}</div>
+    <div className="mt-8 grid grid-cols-2 gap-3 sm:grid-cols-3">{[["Provider", file.provider], ["Category", titleCase(file.category)], ["File type", getMimeDisplayName(file.mimeType, file.name)], ["Size", formatBytes(file.size)], ["Modified", formatDate(file.modifiedAt)], ["Status", file.isDuplicate ? "Duplicate" : "Unique"]].map(([k, v]) => <div key={k} className="rounded-lg bg-[hsl(var(--muted)/.64)] p-3"><div className="cn-mono text-[9px] uppercase tracking-wider text-[hsl(var(--muted-foreground))]">{k}</div><div className="mt-1 truncate text-xs font-semibold">{v}</div></div>)}</div>
     <div className="mt-6 flex flex-wrap gap-2">
-      {isPreviewable && <button onClick={loadPreview} disabled={previewLoading} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid="button-toggle-preview"><FileText className="size-4" />{previewLoading ? "Loading…" : previewUrl ? "Hide preview" : "Preview"}</button>}
+      <button onClick={loadPreview} disabled={previewLoading} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid="button-toggle-preview"><FileText className="size-4" />{previewLoading ? "Loading…" : previewUrl ? "Hide preview" : "Preview"}</button>
       <button onClick={downloadNow} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-open-download"><UploadCloud className="size-4 rotate-180" />Download</button>
       <button onClick={() => { setMoveCategory(file.category); setMoveOpen(!moveOpen); setMigrateOpen(false); }} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-toggle-move"><Folder className="size-4" />Move category</button>
       <button onClick={submitCopy} disabled={copyFile.isPending} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))] disabled:opacity-50" data-testid="button-copy-file"><Copy className="size-4" />{copyFile.isPending ? "Copying…" : "Copy"}</button>
       <button onClick={() => { setMigrateOpen(!migrateOpen); setMoveOpen(false); }} className="cn-btn inline-flex items-center gap-2 rounded-lg border border-[hsl(var(--border))] px-4 py-2.5 text-xs font-semibold hover:bg-[hsl(var(--muted))]" data-testid="button-toggle-migrate"><ArrowRightLeft className="size-4" />Migrate provider</button>
     </div>
-    {previewError && <p className="mt-3 rounded-lg bg-[hsl(var(--destructive)/.1)] px-3 py-2 text-xs text-[hsl(var(--destructive))]" data-testid="text-preview-error">{previewError}</p>}
+    {previewError && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[hsl(var(--destructive)/.1)] px-3 py-2"><p role="alert" className="text-xs text-[hsl(var(--destructive))]" data-testid="text-preview-error">{previewError}</p><button onClick={downloadNow} className="shrink-0 rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3 py-1.5 text-xs font-semibold">Download file</button></div>}
 {previewUrl && (
   <div className="mt-4 overflow-hidden rounded-lg border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.4)]">
-    {isExcel ? (
+    {previewText !== null ? (
+      <pre className="max-h-[640px] overflow-auto whitespace-pre-wrap break-words bg-white p-5 text-sm leading-6 text-gray-900" data-testid="preview-text-content">{previewText}</pre>
+    ) : previewIsWord ? (
+  <iframe
+    srcDoc={`<!doctype html><html><head><meta charset="utf-8"><style>body{font:16px/1.6 system-ui,sans-serif;color:#1f2937;padding:24px;max-width:850px;margin:0 auto;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #d1d5db;padding:6px 10px}pre{white-space:pre-wrap}</style></head><body>${previewHtml ?? ""}</body></html>`}
+    title={`${file.name} preview`}
+    sandbox=""
+    className="h-[640px] w-full bg-white"
+    data-testid="iframe-word-preview"
+  />
+) : previewIsExcel ? (
   <iframe
     srcDoc={previewHtml ?? ""}
     title={file.name}
     className="h-[480px] w-full bg-white"
     data-testid="iframe-excel-preview"
   />
-) : isVideo ? (
+) : previewIsVideo ? (
   <video
     src={previewUrl}
     controls
@@ -1744,7 +1790,7 @@ const downloadNow = async () => {
   >
     Your browser does not support video playback.
   </video>
-) : isImage ? (
+) : previewIsImage ? (
   <img
     src={previewUrl}
     alt={file.name}
@@ -2396,6 +2442,9 @@ function SharedFilePage({ token }: { token: string }) {
       const body = await r.json();
       if (!r.ok) throw new Error(body.error || "Upload failed");
       setUploadDone(true); setReplaceFile(null);
+      window.setTimeout(() => {
+        window.location.assign("/files");
+      }, 1500);
     } catch (err) { setActionError(err instanceof Error ? err.message : "Upload failed"); } finally { setUploading(false); }
   };
 

@@ -112,12 +112,22 @@ export async function recommendProviderForFile(userId: string, currentProvider: 
     }
   }
 
+  const currentFits = current.freeBytes >= fileSizeBytes;
+  const bestAlternative = alternatives.reduce((top, c) => (!top || c.freeBytes > top.freeBytes ? c : top), null as AllocationCandidate | null);
+  const alternativeComparison = bestAlternative
+    ? bestAlternative.freeBytes >= fileSizeBytes
+      ? `${bestAlternative.provider} is ${bestAlternative.totalBytes ? ((bestAlternative.usedBytes / bestAlternative.totalBytes) * 100).toFixed(0) : "unknown"}% full with ${formatGB(bestAlternative.freeBytes)} GB free.`
+      : `${bestAlternative.provider} has the most free space among alternatives (${formatGB(bestAlternative.freeBytes)} GB), but that is not enough for this file.`
+    : "No other connected provider is available for comparison.";
+
   return {
     currentProvider,
     recommendedProvider: currentProvider,
-    reason: `${currentProvider} has enough room for this file (${currentUsedPct.toFixed(0)}% full). No other connected provider offers a meaningfully better fit.`,
+    reason: currentFits
+      ? `${currentProvider} is ${currentUsedPct.toFixed(0)}% full and has ${formatGB(current.freeBytes)} GB free, enough for this ${formatGB(fileSizeBytes)} GB file. ${alternativeComparison} Keeping it here avoids an unnecessary copy; a move is recommended only when another provider can fit the file and is more than 10 percentage points less full.`
+      : `${currentProvider} is ${currentUsedPct.toFixed(0)}% full and does not have enough free space for this ${formatGB(fileSizeBytes)} GB file. ${alternativeComparison} No move is recommended because no alternative both fits the file and provides a meaningful improvement.`,
     shouldMigrate: false,
-    estimatedFreeAfter: current.freeBytes - fileSizeBytes,
+    estimatedFreeAfter: currentFits ? current.freeBytes - fileSizeBytes : null,
   };
 }
 

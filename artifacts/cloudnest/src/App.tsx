@@ -23,6 +23,7 @@ import {
 } from '@/components/cloudnest';
 import {
   Route,
+  Redirect,
   Switch,
   useLocation,
   useParams,
@@ -55,7 +56,7 @@ function Router() {
         <Route path="/files" component={() => <FilesPage />} />
         <Route path="/files/:id" component={FileDetailsRoute} />
         <Route path="/providers" component={ProvidersPage} />
-        <Route path="/search" component={() => <FilesPage searchMode />} />
+        <Route path="/search" component={() => <Redirect to="/files" />} />
         <Route path="/categories" component={CategoriesPage} />
         <Route path="/duplicates" component={DuplicatesPage} />
         <Route path="/shares" component={SharesPage} />

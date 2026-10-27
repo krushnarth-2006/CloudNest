@@ -9,6 +9,10 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
 const FOLDER_MIME = "application/vnd.google-apps.folder";
+const GOOGLE_EXPORT_MIME_TYPES: Record<string, string> = {
+  "application/vnd.google-apps.document": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.google-apps.spreadsheet": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
 
 const clientId = () => process.env.GOOGLE_CLIENT_ID;
 const clientSecret = () => process.env.GOOGLE_CLIENT_SECRET;
@@ -172,10 +176,16 @@ export const googleDriveProvider: CloudProvider = {
     const metaResponse = await fetch(`${DRIVE_API}/files/${fileId}?fields=name,mimeType`, { headers: authHeaders(creds) });
     await assertOk("google-drive", metaResponse, "get file metadata");
     const meta = await metaResponse.json() as { name: string; mimeType: string };
-    const response = await fetch(`${DRIVE_API}/files/${fileId}?alt=media`, { headers: authHeaders(creds) });
-    await assertOk("google-drive", response, "download file");
+    const exportMimeType = GOOGLE_EXPORT_MIME_TYPES[meta.mimeType];
+    const url = exportMimeType
+      ? `${DRIVE_API}/files/${fileId}/export?mimeType=${encodeURIComponent(exportMimeType)}`
+      : `${DRIVE_API}/files/${fileId}?alt=media`;
+    const response = await fetch(url, { headers: authHeaders(creds) });
+    await assertOk("google-drive", response, exportMimeType ? "export Google Workspace file" : "download file");
     const buffer = Buffer.from(await response.arrayBuffer());
-    return { buffer, mimeType: meta.mimeType, name: meta.name };
+    const extension = exportMimeType?.includes("wordprocessingml") ? ".docx" : exportMimeType?.includes("spreadsheetml") ? ".xlsx" : "";
+    const name = extension && !meta.name.toLowerCase().endsWith(extension) ? `${meta.name}${extension}` : meta.name;
+    return { buffer, mimeType: exportMimeType ?? meta.mimeType, name };
   },
 
   async deleteFile(creds, fileId) {

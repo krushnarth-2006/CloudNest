@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
+    "test": "node --experimental-strip-types --test src/lib/mimeDisplay.test.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -76,6 +77,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "mammoth": "^1.13.0",
     "xlsx": "^0.18.5"
   }
 }

@@ -15,6 +15,7 @@ import { categorizeFile } from "../services/ai";
 import { extractText } from "../services/textExtraction";
 import { syncProviderFiles } from "../services/cloudSync";
 import { queueDuplicateProcessing, queueMetadataSync } from "../workers";
+import { detectMimeType, fileResponseHeaders, isPreviewableMimeType } from "../services/mimeDetection";
 
 const router: IRouter = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200 * 1024 * 1024 } });
@@ -163,14 +164,15 @@ router.post("/files/upload", ...secure, upload.single("file"), async (req: AuthR
 
   const requestedProvider = typeof req.body.provider === "string" && req.body.provider ? req.body.provider : undefined;
   const requestedCategory = typeof req.body.category === "string" && req.body.category ? req.body.category : undefined;
+  const actualMimeType = detectMimeType(file.buffer, file.mimetype);
 
   const hash = createHash("sha256").update(file.buffer).digest("hex");
   const duplicate = await FileModel.findOne({ userId, hash }).lean();
 
-  const text = await extractText(file.buffer, file.mimetype);
+  const text = await extractText(file.buffer, actualMimeType);
   const classification = requestedCategory && CATEGORIES.includes(requestedCategory as any)
     ? { category: requestedCategory, confidence: 1, reason: "Category chosen manually by the user." }
-    : await categorizeFile({ filename: file.originalname, mimeType: file.mimetype, text });
+    : await categorizeFile({ filename: file.originalname, mimeType: actualMimeType, text });
 
   let providerId = requestedProvider;
   let allocationReason: string | undefined;
@@ -200,7 +202,7 @@ router.post("/files/upload", ...secure, upload.single("file"), async (req: AuthR
   try {
     uploaded = await authorized.provider.uploadFile(authorized.creds, {
       name: file.originalname,
-      mimeType: file.mimetype,
+      mimeType: actualMimeType,
       buffer: file.buffer,
       folderId,
     });
@@ -210,7 +212,7 @@ router.post("/files/upload", ...secure, upload.single("file"), async (req: AuthR
 
   const created = await FileModel.create({
     userId, provider: providerId, cloudFileId: uploaded.id,
-    name: file.originalname, originalName: file.originalname, mimeType: file.mimetype, size: file.size,
+    name: file.originalname, originalName: file.originalname, mimeType: detectMimeType(file.buffer, uploaded.mimeType || actualMimeType), size: file.size,
     path: `/${classification.category}/${file.originalname}`, category: classification.category,
     categoryConfidence: classification.confidence, categoryReason: classification.reason,
     hash, isDuplicate: Boolean(duplicate), aiProcessed: true, modifiedAt: new Date(uploaded.modifiedAt ?? Date.now()),
@@ -226,6 +228,30 @@ router.post("/files/upload", ...secure, upload.single("file"), async (req: AuthR
   return res.status(201).json(created.toObject());
 });
 
+router.get("/files/:id/preview", ...secure, async (req: AuthRequest, res) => {
+  const file = await FileModel.findOne({ _id: req.params.id, userId: req.userId });
+  if (!file) return res.status(404).json({ error: "File not found" });
+  const authorized = await getAuthorizedProvider(req.userId!, file.provider);
+  if (!authorized || !file.cloudFileId) return res.status(409).json({ error: "The source provider is not connected; cannot preview this file." });
+  try {
+    const { buffer, mimeType, name } = await authorized.provider.downloadFile(authorized.creds, file.cloudFileId);
+    const actualMimeType = detectMimeType(buffer, mimeType || file.mimeType);
+    if (!isPreviewableMimeType(actualMimeType)) {
+      return res.status(415).json({ error: `Preview is not supported for ${actualMimeType}. Download the file to open it.` });
+    }
+    if (file.mimeType !== actualMimeType) {
+      file.mimeType = actualMimeType;
+      await file.save();
+    }
+    for (const [header, value] of Object.entries(fileResponseHeaders("inline", actualMimeType, name || file.name))) {
+      res.setHeader(header, value);
+    }
+    return res.send(buffer);
+  } catch (error) {
+    return res.status(502).json({ error: error instanceof Error ? error.message : "Preview could not be loaded from the cloud provider." });
+  }
+});
+
 router.get("/files/:id/download", ...secure, async (req: AuthRequest, res) => {
   const file = await FileModel.findOne({ _id: req.params.id, userId: req.userId }).lean();
   if (!file) return res.status(404).json({ error: "File not found" });
@@ -234,8 +260,9 @@ router.get("/files/:id/download", ...secure, async (req: AuthRequest, res) => {
   try {
     const { buffer, mimeType, name } = await authorized.provider.downloadFile(authorized.creds, file.cloudFileId);
     await activity(req.userId!, "Download", `${file.name} downloaded`, file.provider);
-    res.setHeader("content-type", mimeType || file.mimeType || "application/octet-stream");
-    res.setHeader("content-disposition", `attachment; filename="${encodeURIComponent(name || file.name)}"`);
+    for (const [header, value] of Object.entries(fileResponseHeaders("attachment", detectMimeType(buffer, mimeType || file.mimeType), name || file.name))) {
+      res.setHeader(header, value);
+    }
     return res.send(buffer);
   } catch (error) {
     return res.status(502).json({ error: error instanceof Error ? error.message : "Download failed" });
@@ -794,18 +821,22 @@ router.post("/share/:token/upload", shareVerifyLimit, upload.single("file"), asy
   let uploaded;
   try {
     const { folderId } = await ensureCategoryFolder(String(share.ownerId), fileDoc.provider, fileDoc.category);
-    uploaded = await authorized.provider.uploadFile(authorized.creds, { name: fileDoc.name, mimeType: req.file.mimetype || fileDoc.mimeType || "application/octet-stream", buffer: req.file.buffer, folderId });
+    uploaded = await authorized.provider.uploadFile(authorized.creds, { name: fileDoc.name, mimeType: detectMimeType(req.file.buffer, req.file.mimetype), buffer: req.file.buffer, folderId });
   } catch (error) {
     return res.status(502).json({ error: error instanceof Error ? error.message : "Could not upload the replacement file" });
   }
-  if (previousCloudFileId) {
+  // Some providers (notably OneDrive when uploading to the same path) update the
+  // existing item and return its existing ID. Only delete the previous item when
+  // the upload created a different cloud object; otherwise this would delete the
+  // replacement that was just uploaded.
+  if (previousCloudFileId && previousCloudFileId !== uploaded.id) {
     try { await authorized.provider.deleteFile(authorized.creds, previousCloudFileId); } catch { /* old version orphaned but not fatal */ }
   }
 
   const hash = createHash("sha256").update(req.file.buffer).digest("hex");
   fileDoc.cloudFileId = uploaded.id;
   fileDoc.size = req.file.size;
-  fileDoc.mimeType = req.file.mimetype || fileDoc.mimeType;
+  fileDoc.mimeType = detectMimeType(req.file.buffer, uploaded.mimeType || req.file.mimetype || fileDoc.mimeType);
   fileDoc.hash = hash;
   fileDoc.modifiedAt = new Date(uploaded.modifiedAt ?? Date.now());
   await fileDoc.save();
